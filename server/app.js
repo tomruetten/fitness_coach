@@ -210,7 +210,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
   app.use((err, req, res, next) => {
     const status = err.status || 500;
     if (status >= 500) console.error('Fehler:', err);
-    res.status(status).json({ error: status >= 500 ? 'Serverfehler' : err.message });
+    res.status(status).json({ error: status >= 500 ? (req.path.startsWith('/api/auth/') ? `Serverfehler: ${String(err.message).slice(0, 160)}` : 'Serverfehler') : err.message });
   });
   return app;
 }

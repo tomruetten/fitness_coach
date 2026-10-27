@@ -10,7 +10,9 @@ const b64u = (u8) => Buffer.from(u8).toString('base64url');
 const fromB64u = (s) => new Uint8Array(Buffer.from(s, 'base64url'));
 
 export function relyingParty(req) {
-  const origin = process.env.APP_ORIGIN || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+  let env = (process.env.APP_ORIGIN || '').trim();
+  if (env && !/^https?:\/\//.test(env)) env = 'https://' + env;
+  const origin = env || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
   const url = new URL(origin);
   return { origin: url.origin, rpID: process.env.RP_ID || url.hostname, rpName: 'Fitness Coach' };
 }
