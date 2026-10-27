@@ -185,7 +185,11 @@ async function render() {
 }
 async function start() {
   let st;
-  try { st = await api('/auth/state'); } catch (e) { app.innerHTML = `<div class="center"><h1>Offline</h1><p class="sub">Keine Verbindung zum Server.</p><button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
+  try { st = await api('/auth/state'); } catch (e) {
+    let hint = '';
+    try { const h = await (await fetch('/api/health', { headers: { 'X-Requested-With': 'fit' } })).json(); if (h.missing?.length) hint = '<p class="err">Fehlende Konfiguration: ' + esc(h.missing.join(', ')) + '</p>'; } catch {}
+    const offline = e instanceof TypeError;
+    app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="sub">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
   if (!st.authed) return showAuth(st);
   $('#tabs').hidden = false; render();
 }

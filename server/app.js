@@ -41,7 +41,17 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     });
   };
 
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
+  app.get('/api/health', (req, res) => {
+    const has = (k) => !!process.env[k];
+    const secretOk = (process.env.SESSION_SECRET || '').length >= 32;
+    const missing = [];
+    if (!has('SUPABASE_URL') || !has('SUPABASE_SERVICE_KEY')) missing.push('SUPABASE_URL/SUPABASE_SERVICE_KEY');
+    if (!secretOk) missing.push('SESSION_SECRET (mind. 32 Zeichen)');
+    if (!has('APP_ORIGIN')) missing.push('APP_ORIGIN');
+    if (!has('SETUP_TOKEN')) missing.push('SETUP_TOKEN (nur für die Ersteinrichtung)');
+    if (!has('GARMIN_PERSONAL_API_KEY')) missing.push('GARMIN_PERSONAL_API_KEY');
+    res.json({ ok: missing.length === 0, missing });
+  });
 
   // ---- Anmeldung -------------------------------------------------------------
   app.get('/api/auth/state', wrap(async (req, res) => {
