@@ -3,7 +3,7 @@
 import fs from 'fs';
 
 export function createMemoryStore(persistPath = null) {
-  const t = { settings: {}, activities: new Map(), days: new Map(), strength: [], pain: [], passkeys: new Map(), challenges: new Map(), attempts: new Map() };
+  const t = { settings: {}, activities: new Map(), days: new Map(), strength: [], sets: [], pain: [], passkeys: new Map(), challenges: new Map(), attempts: new Map() };
   if (persistPath && fs.existsSync(persistPath)) {
     try {
       const raw = JSON.parse(fs.readFileSync(persistPath, 'utf8'));
@@ -11,13 +11,14 @@ export function createMemoryStore(persistPath = null) {
       (raw.activities || []).forEach((a) => t.activities.set(a.id, a));
       (raw.days || []).forEach((d) => t.days.set(d.date, d));
       t.strength = raw.strength || [];
+      t.sets = raw.sets || [];
       t.pain = raw.pain || [];
       (raw.passkeys || []).forEach((p) => t.passkeys.set(p.id, p));
     } catch { /* leere Datenbank */ }
   }
   const save = () => {
     if (!persistPath) return;
-    fs.writeFileSync(persistPath, JSON.stringify({ settings: t.settings, activities: [...t.activities.values()], days: [...t.days.values()], strength: t.strength, pain: t.pain, passkeys: [...t.passkeys.values()] }));
+    fs.writeFileSync(persistPath, JSON.stringify({ settings: t.settings, activities: [...t.activities.values()], days: [...t.days.values()], strength: t.strength, sets: t.sets, pain: t.pain, passkeys: [...t.passkeys.values()] }));
   };
   return {
     kind: 'memory',
@@ -30,6 +31,13 @@ export function createMemoryStore(persistPath = null) {
     async daysSince(date) { return [...t.days.values()].filter((d) => d.date >= date).sort((a, b) => a.date.localeCompare(b.date)); },
     async addStrength(rows) { rows.forEach((r, i) => t.strength.push({ id: t.strength.length + 1 + i, ...r })); save(); },
     async strengthSince(date) { return t.strength.filter((s) => s.date >= date); },
+    async replaceSets(date, rows) {
+      const ids = new Set(rows.map((r) => r.exercise_id));
+      t.sets = t.sets.filter((s) => !(s.date === date && ids.has(s.exercise_id)));
+      rows.forEach((r) => t.sets.push({ id: t.sets.length + 1, ...r }));
+      save();
+    },
+    async setsSince(date) { return t.sets.filter((s) => s.date >= date).sort((a, b) => a.date.localeCompare(b.date) || a.set_no - b.set_no); },
     async addPain(row) { t.pain.push({ id: t.pain.length + 1, ...row }); save(); },
     async painSince(date) { return t.pain.filter((p) => p.date >= date); },
     async passkeys() { return [...t.passkeys.values()]; },

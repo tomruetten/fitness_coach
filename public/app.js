@@ -1,27 +1,10 @@
-const $ = (s) => document.querySelector(s);
+import { $, $$, esc, pace, hm, dmy, dec, SPORT, toast, api, store, swr } from './util.js';
+import { viewAnalysis } from './analysis.js';
+import { heuteKraftCard, viewPrep, viewLog } from './strength.js';
+
 const app = $('#app');
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const pace = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '–');
-const hm = (s) => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h}:${String(m).padStart(2, '0')} h` : `${m} min`; };
-const dmy = (d) => d.slice(8, 10) + '.' + d.slice(5, 7) + '.';
-const SPORT = { running: 'Laufen', cycling: 'Rad', strength: 'Kraft', swimming: 'Schwimmen', tennis: 'Tennis', other: 'Sonstiges' };
 let tab = 'today';
-
-function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 2400); }
-
-async function api(path, body) {
-  const opt = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fit' }, body: JSON.stringify(body) };
-  if (body === undefined) opt.headers = { 'X-Requested-With': 'fit' };
-  const r = await fetch('/api' + path, opt);
-  const j = await r.json().catch(() => ({}));
-  if (r.status === 401) { const e = new Error('auth'); e.auth = true; throw e; }
-  if (!r.ok) throw new Error(j.error || 'Fehler ' + r.status);
-  return j;
-}
-async function cached(key, path) {
-  try { const d = await api(path); try { localStorage.setItem(key, JSON.stringify(d)); } catch {} return { d, stale: false }; }
-  catch (e) { if (e.auth) throw e; try { const s = localStorage.getItem(key); if (s) return { d: JSON.parse(s), stale: true }; } catch {} throw e; }
-}
+let sub = null; // {view:'prep'|'log', kind}
 
 // ---- WebAuthn --------------------------------------------------------------
 const b64u = { dec: (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0)).buffer,
@@ -46,9 +29,9 @@ async function loginPasskey() {
 }
 
 async function showAuth(state) {
-  $('#tabs').hidden = true;
+  $('#tabs').hidden = true; app.classList.remove('sub');
   const setup = state.setupNeeded;
-  app.innerHTML = `<div class="center"><h1>Fitness Coach</h1><p class="sub">${setup ? 'Erste Einrichtung: Mit dem Setup-Token legst du den Passkey für dieses Gerät an.' : 'Mit Face ID, Touch ID oder Gerätecode anmelden.'}</p>
+  app.innerHTML = `<div class="center"><h1>Fitness Coach</h1><p class="lead">${setup ? 'Erste Einrichtung: Mit dem Setup-Token legst du den Passkey für dieses Gerät an.' : 'Mit Face ID, Touch ID oder Gerätecode anmelden.'}</p>
     ${setup ? '<input class="txt" id="tok" type="password" placeholder="Setup-Token" autocomplete="off">' : ''}
     <button class="pri" id="go">${setup ? 'Passkey anlegen' : 'Mit Passkey anmelden'}</button><p class="err" id="msg"></p></div>`;
   $('#go').onclick = async () => {
@@ -59,92 +42,94 @@ async function showAuth(state) {
   if (!setup && window.PublicKeyCredential) $('#go').click();
 }
 
-// ---- Diagramme (SVG) -------------------------------------------------------
-function bars(vals, labels, { color = 'var(--acc)', h = 120, fmt = (v) => v } = {}) {
-  const W = 320, max = Math.max(1, ...vals), bw = W / vals.length;
-  return `<svg class="chart" viewBox="0 0 ${W} ${h + 18}">${vals.map((v, i) => { const bh = (v / max) * (h - 14); return `<rect x="${i * bw + 3}" y="${h - bh}" width="${bw - 6}" height="${bh}" rx="3" fill="${color}"/><text x="${i * bw + bw / 2}" y="${h - bh - 3}" text-anchor="middle">${v ? fmt(v) : ''}</text><text x="${i * bw + bw / 2}" y="${h + 12}" text-anchor="middle">${i % 2 === (vals.length - 1) % 2 ? esc(labels[i]) : ''}</text>`; }).join('')}</svg>`;
-}
-function line(pts, { h = 120, color = 'var(--acc)', fmt = (v) => v, ref = null, invert = false } = {}) {
-  const p = pts.filter((x) => x.y != null);
-  if (p.length < 2) return '<p class="muted">Noch zu wenig Daten.</p>';
-  const W = 320, ys = p.map((x) => x.y).concat(ref != null ? [ref] : []);
-  let lo = Math.min(...ys), hi = Math.max(...ys); if (hi === lo) { hi += 1; lo -= 1; }
-  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
-  const X = (i) => 8 + (i / (p.length - 1)) * (W - 16), Y = (v) => { const t = (v - lo) / (hi - lo); return 8 + (invert ? t : 1 - t) * (h - 16); };
-  const d = p.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x.y).toFixed(1)}`).join('');
-  const last = p[p.length - 1];
-  return `<svg class="chart" viewBox="0 0 ${W} ${h + 14}">${ref != null ? `<line x1="8" x2="${W - 8}" y1="${Y(ref)}" y2="${Y(ref)}" stroke="var(--mute)" stroke-dasharray="3 3" opacity=".6"/>` : ''}<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${X(p.length - 1)}" cy="${Y(last.y)}" r="3.5" fill="${color}"/><text x="${X(0)}" y="${h + 11}">${esc(p[0].x)}</text><text x="${W - 8}" y="${h + 11}" text-anchor="end">${esc(last.x)}: ${esc(fmt(last.y))}</text></svg>`;
-}
-function zoneBar(zs) {
-  const t = zs.reduce((a, b) => a + b, 0) || 1, c = ['--z1', '--z2', '--z3', '--z4', '--z5'];
-  return `<svg class="chart" viewBox="0 0 320 30"><g>${zs.map((s, i) => { const w = (s / t) * 320, x = zs.slice(0, i).reduce((a, b) => a + b, 0) / t * 320; return `<rect x="${x}" y="0" width="${w}" height="22" fill="var(${c[i]})"/>`; }).join('')}</g></svg><div class="legend">${zs.map((s, i) => `<span><i style="background:var(${c[i]})"></i>Z${i + 1} ${Math.round(s / t * 100)} %</span>`).join('')}</div>`;
+
+// ---- Heute -----------------------------------------------------------------
+const KIND_COLOR = { running: '#FF6B2C', strength: '#AF52DE', spinning: '#0A84FF' };
+const group = (k) => (k.startsWith('run') ? 'run' : k.startsWith('strength') ? 'strength' : k === 'spinning' ? 'spin' : 'rest');
+const nice = (l) => String(l || '').replace(' (', ' · ').replace(')', '');
+const zoneOf = (hr, lthr) => { const r = hr / lthr; return r < 0.85 ? 0 : r < 0.9 ? 1 : r < 0.95 ? 2 : r < 1 ? 3 : 4; };
+const ZC = ['#A9C9FF', '#34C759', '#FFCC00', '#FF9500', '#FF3B30'];
+
+function pills(d) {
+  const rd = d.readiness, p = d.plan;
+  const lvl = { good: ['Erholung gut', '#34C759'], medium: ['Erholung mittel', '#FF9500'], low: ['Erholung niedrig', '#FF3B30'] }[rd.level];
+  return `<div class="pills">${lvl ? `<span class="pill"><i style="background:${lvl[1]}"></i>${lvl[0]}</span>` : ''}${rd.acwr != null ? `<span class="pill mute">Belastung ${dec(rd.acwr, 2)}</span>` : ''}${p.block ? `<span class="pill mute">${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}</span>` : ''}${p.provisional ? '<span class="pill mute">vorläufig</span>' : ''}</div>`;
 }
 
-// ---- Ansichten -------------------------------------------------------------
-function planCard(p, { hero = true } = {}) {
-  const t = p.targets || {};
-  const kv = [];
-  if (t.distance_km) kv.push(['Distanz', t.distance_km + ' km']);
-  if (t.duration_min) kv.push(['Dauer', t.duration_min + ' min']);
-  if (t.pace_s) kv.push(['Tempo', pace(t.pace_s) + ' /km']);
-  if (t.hr_from && p.structure?.type !== 'strides') kv.push(['Puls', `${t.hr_from}–${t.hr_to}`]);
-  const steps = (p.steps || []).map((s) => `<li><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></li>`).join('');
-  const why = (p.why || []).length ? `<div class="why"><b>Warum angepasst:</b>${p.why.map((w) => `<p>${esc(w.text)}</p>`).join('')}</div>` : '';
-  return `<div class="card ${hero ? 'hero' : ''}"><span class="tag">${esc(p.label)}</span>${p.block ? `<span class="tag">${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}</span>` : ''}${p.provisional ? '<span class="tag">vorläufig</span>' : ''}
-    <h3>${esc(p.title)}</h3><div class="muted">${esc(p.summary || '')}</div>${kv.length ? `<div class="kv">${kv.map(([k, v]) => `<div><small>${k}</small><strong>${esc(v)}</strong></div>`).join('')}</div>` : ''}
-    ${steps ? `<ul class="steps">${steps}</ul>` : ''}${why}</div>`;
+function runCard(d) {
+  const p = d.plan, t = p.targets || {}, color = KIND_COLOR.running;
+  const big = [];
+  if (t.distance_km) big.push(['Distanz', dec(t.distance_km, 1), ' km']);
+  if (t.duration_min) big.push(['Dauer', String(t.duration_min), ' min']);
+  if (t.pace_s) big.push(['Tempo', pace(t.pace_s), ' /km']);
+  let zone = '';
+  if (t.hr_from && p.structure?.type !== 'strides') {
+    const zi = zoneOf((t.hr_from + t.hr_to) / 2, d.thresholds.lthr);
+    zone = `<div class="zone"><div class="zl"><span>Zielpuls</span><span class="mute">${t.hr_from}–${t.hr_to} bpm</span></div><div class="zb">${ZC.map((c, i) => `<i style="flex:${i === 0 ? 3 : 1};background:${c};opacity:${i === zi ? 1 : 0.4}"></i>`).join('')}</div><div class="zt">${['Z1', 'Z2', 'Z3', 'Z4', 'Z5'].map((z, i) => `<span${i === zi ? ' class="on"' : ''}>${z}</span>`).join('')}</div></div>`;
+  }
+  const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
+  return `<div class="card hero"><div class="hero-top"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>
+    ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${zone}
+    ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}</div>`;
+}
+function otherCard(d) {
+  const p = d.plan, rest = p.kind === 'rest', color = rest ? '#8E8E93' : KIND_COLOR.spinning;
+  const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
+  return `<div class="card hero"><div class="hero-top"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>
+    ${p.targets?.duration_min ? `<div class="bigs"><div><span>Dauer</span><b>${p.targets.duration_min}<small> min</small></b></div></div>` : ''}<p class="blurb">${esc(p.summary || '')}</p>${steps ? `<div class="lines">${steps}</div>` : ''}</div>`;
+}
+function infoCard(d) {
+  const p = d.plan, rd = d.readiness, why = p.why || [];
+  const adjusted = why.length > 0;
+  const text = adjusted ? why.map((w) => esc(w.text)).join('<br>') : rd.signals?.length ? rd.signals.map((s) => esc(s.text)).join('<br>') : 'Erholung und Belastung liegen im Normalbereich.';
+  return `<div class="card info"><div class="ico">${'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>'}</div><div><b>${adjusted ? 'Heute angepasst' : 'Heute nicht angepasst'}</b><p>${text}</p></div></div>`;
 }
 
 function drawToday(d, stale) {
-  const p = d.plan, rd = d.readiness;
-  const lvl = { good: 'Erholung gut', medium: 'Erholung mittel', low: 'Erholung niedrig' }[rd.level] || '';
-  let html = `<h1>Heute</h1><p class="sub">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · <span class="err">offline, letzter Stand</span>' : ''}</p>
-    <span class="tag ${rd.level}">${lvl}</span>${rd.acwr != null ? `<span class="tag">Belastungsverhältnis ${Number(rd.acwr).toFixed(2)}</span>` : ''}`;
-  html += planCard(p);
-  if (p.exercises) {
-    html += `<h2>Übungen protokollieren</h2><div class="card" id="ex">${p.exercises.map((e, i) => `<div class="ex"><input type="checkbox" data-i="${i}" checked aria-label="erledigt"><label>${esc(e.name)}<small>${e.sets} × ${esc(e.reps)}${e.note ? ' · ' + esc(e.note) : ''}</small></label><input type="number" inputmode="decimal" data-w="${i}" placeholder="kg" value="${e.weight_kg ?? ''}"></div>`).join('')}<button class="pri" id="saveEx">Einheit speichern</button></div>`;
-  }
-  if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1) + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
-  if (rd.signals?.length) html += `<h2>Erholungssignale</h2><div class="card">${rd.signals.map((s) => `<div class="row"><span>${esc(s.text)}</span></div>`).join('')}</div>`;
+  const p = d.plan, g = group(p.kind);
+  const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
+  let html = head + pills(d);
+  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard(d) : otherCard(d);
+  html += infoCard(d);
+  if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   if (d.thresholdSuggestion) {
     const s = d.thresholdSuggestion;
     html += `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App:</div><div class="kv">${s.lthr ? `<div><small>Schwellenpuls</small><strong>${s.lthr}</strong></div>` : ''}${s.lt_pace_s ? `<div><small>Schwellentempo</small><strong>${pace(s.lt_pace_s)}</strong></div>` : ''}</div><button class="sec" id="applyTh">Übernehmen</button></div>`;
   }
   html += `<h2>Schmerz melden</h2><div class="card"><div class="muted">Optional. Ab 4 von 10 werden belastende Übungen ersetzt.</div><div class="pain">${[0, 2, 4, 6, 8].map((n) => `<button data-pain="${n}">${n}</button>`).join('')}</div></div>`;
   app.innerHTML = html;
-  $('#saveEx')?.addEventListener('click', async () => {
-    const entries = p.exercises.map((e, i) => ({ date: d.date, exercise_id: e.id, sets: e.sets, reps: e.reps, weight_kg: $(`[data-w="${i}"]`).value || null, done_all: $(`[data-i="${i}"]`).checked }));
-    try { await api('/strength/log', { entries }); toast('Gespeichert'); } catch (e) { toast(e.message); }
-  });
+  $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind })));
   $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); render(); } catch (e) { toast(e.message); } });
-  app.querySelectorAll('[data-pain]').forEach((b) => b.addEventListener('click', async () => {
+  $$('[data-pain]', app).forEach((b) => b.addEventListener('click', async () => {
     const area = Number(b.dataset.pain) >= 4 ? (prompt('Wo? (z. B. Knie, Achillessehne)') || null) : null;
-    try { await api('/pain', { level: Number(b.dataset.pain), area, date: d.date }); b.parentNode.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); toast('Notiert'); } catch (e) { toast(e.message); }
+    try { await api('/pain', { level: Number(b.dataset.pain), area, date: d.date }); $$('button', b.parentNode).forEach((x) => x.classList.toggle('on', x === b)); toast('Notiert'); } catch (e) { toast(e.message); }
   }));
 }
 
+// ---- Woche -----------------------------------------------------------------
+const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const dm = (iso) => `${Number(iso.slice(8, 10))}. ${MON[Number(iso.slice(5, 7)) - 1]}`;
+const check = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="erledigt" role="img"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>';
 function drawWeek(d, stale) {
-  const names = { rest: 'Ruhetag' };
-  app.innerHTML = `<h1>Woche</h1><p class="sub">Sportart fix, Inhalt passt sich an.${stale ? ' <span class="err">Offline-Stand</span>' : ''}</p><div class="week">${d.week.map((p) => {
-    const t = p.targets || {}; const meta = [t.distance_km && t.distance_km + ' km', t.duration_min && t.duration_min + ' min'].filter(Boolean).join(' · ');
-    return `<div class="day ${p.date === d.today ? 'today' : ''} ${p.provisional ? 'prov' : ''}"><div class="d">${esc(p.weekday.slice(0, 2))}</div><div class="t"><b>${esc(p.kind === 'rest' ? names.rest : p.label)}</b><small>${esc(p.kind === 'rest' ? '' : p.title)}${meta ? ' · ' + meta : ''}</small></div>${p.done?.length ? '<span class="ok">✓</span>' : ''}</div>`;
+  const w = d.week;
+  const c = { run: [0, 0], strength: [0, 0], spin: [0, 0] };
+  w.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (p.done?.length) c[g][0]++; } });
+  const b0 = w[0]?.block;
+  const prog = (l, [a, n], col) => `<div class="pc"><span>${l}</span><b>${a}<small> / ${n}</small></b><div class="pt"><i style="width:${n ? Math.round(a / n * 100) : 0}%;background:${col}"></i></div></div>`;
+  app.innerHTML = `<div class="head"><div class="eyebrow">${dm(w[0].date)} – ${dm(w[6].date)}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div>
+    <div class="card prog3">${prog('Laufen', c.run, '#FF6B2C')}${prog('Kraft', c.strength, '#AF52DE')}${prog('Spinning', c.spin, '#0A84FF')}</div>
+    <div class="days">${w.map((p) => {
+    const g = group(p.kind), t = p.targets || {}, today = p.date === d.today, rest = g === 'rest';
+    const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
+    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}"${g === 'strength' ? ` data-kind="${p.kind}"` : ''}><div class="dd"><span>${esc(p.weekday.slice(0, 2))}</span><b>${Number(p.date.slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${p.done?.length ? check : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>`;
-}
-
-function drawTrends(d, stale) {
-  const w = d.weekly, lab = w.map((x) => dmy(x.week).slice(0, 5));
-  const zsum = [0, 0, 0, 0, 0]; w.slice(-6).forEach((x) => x.zone_s.forEach((s, i) => { zsum[i] += s; }));
-  app.innerHTML = `<h1>Trends</h1><p class="sub">Letzte 12 Wochen</p>
-   <h2>Laufkilometer pro Woche</h2><div class="card">${bars(w.map((x) => x.run_km), lab, { fmt: (v) => Math.round(v) })}</div>
-   <h2>Intensitätsverteilung Laufen (6 Wochen)</h2><div class="card">${zoneBar(zsum)}<div class="muted" style="margin-top:6px">Ziel im Aufbau: etwa 80 % in Z1–Z2.</div></div>
-   <h2>Tempo bei Z2-Puls (Monatsmedian)</h2><div class="card">${line(d.paceZ2.map((x) => ({ x: x.month.slice(2), y: x.pace_s })), { fmt: pace, invert: true })}<div class="muted">Schneller bei gleichem Puls bedeutet bessere Grundlage.</div></div>
-   <h2>Belastungsverhältnis (7 d / 28 d)</h2><div class="card">${line(d.acwr.map((x) => ({ x: dmy(x.date), y: x.ratio })), { ref: 1.5, fmt: (v) => v.toFixed(2) })}<div class="muted">Gestrichelt: 1,5, darüber wird entlastet.</div></div>
-   <h2>HRV und Ruhepuls</h2><div class="card">${line(d.hrv.map((x) => ({ x: dmy(x.date), y: x.hrv })), { fmt: (v) => Math.round(v) + ' ms' })}${line(d.hrv.map((x) => ({ x: dmy(x.date), y: x.rhr })), { color: 'var(--z5)', fmt: (v) => Math.round(v) + ' bpm' })}</div>
-   <h2>Bodenkontaktzeit</h2><div class="card">${line(d.form.map((x) => ({ x: dmy(x.date), y: x.gct })), { fmt: (v) => v + ' ms', invert: true })}<div class="muted">Kürzer bei gleichem Tempo ist effizienter.</div></div>
-   <h2>Gesamtbelastung pro Woche</h2><div class="card">${bars(w.map((x) => x.load), lab, { color: 'var(--z4)' })}</div>`;
+  $$('.day[data-kind]', app).forEach((r) => r.addEventListener('click', () => go('prep', { kind: r.dataset.kind })));
 }
 
 async function viewMore() {
+  // Inhalt unverändert, nur neues Aussehen
+
   const [s, st] = await Promise.all([api('/settings'), api('/auth/state')]);
   const g = s.goal || {};
   app.innerHTML = `<h1>Mehr</h1><h2>Ziel</h2><div class="card">
@@ -174,30 +159,30 @@ async function viewMore() {
   $('#out').onclick = async () => { await api('/auth/logout', {}); start(); };
 }
 
-const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek], trends: ['c_trends', '/trends', drawTrends] };
+
+// ---- Navigation ------------------------------------------------------------
+const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek] };
 let renderId = 0;
+function go(view, o = {}) {
+  if (view === 'today') { sub = null; tab = 'today'; } else sub = { view, ...o };
+  render();
+}
 async function render() {
   const my = ++renderId;
-  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  const isCurrent = () => my === renderId;
+  clearInterval(viewLog.tm);
+  $$('#tabs button').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  $('#tabs').hidden = !!sub;
+  app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
   try {
+    if (sub) { const f = sub.view === 'log' ? viewLog : viewPrep; await f(app, { kind: sub.kind, nav: go }); return; }
     if (tab === 'more') { await viewMore(); return; }
+    if (tab === 'analysis') { await viewAnalysis(app, isCurrent); return; }
     const [key, path, draw] = views[tab];
-    let shown = null;
-    try { shown = localStorage.getItem(key); } catch {}
-    if (shown) draw(JSON.parse(shown), false); // sofort den letzten Stand zeigen, dann aktualisieren
-    else app.innerHTML = '<p class="sub" style="margin-top:40vh;text-align:center">Lädt …</p>';
-    try {
-      const d = await api(path);
-      const txt = JSON.stringify(d);
-      try { localStorage.setItem(key, txt); } catch {}
-      if (my === renderId && txt !== shown) draw(d, false);
-    } catch (e) {
-      if (e.auth) throw e;
-      if (!shown) throw e;
-      if (my === renderId) draw(JSON.parse(shown), true);
-    }
-  } catch (e) { if (e.auth) return start(); if (my === renderId) app.innerHTML = `<h1>Ups</h1><p class="err">${esc(e.message)}</p><button class="sec" onclick="location.reload()">Neu laden</button>`; }
+    if (!store.get(key)) app.innerHTML = '<p class="muted center-text">Lädt …</p>';
+    await swr(key, path, (d, off) => { if (isCurrent()) draw(d, off); }, isCurrent);
+  } catch (e) { if (e.auth) return start(); if (isCurrent()) app.innerHTML = `<div class="head"><h1>Ups</h1></div><p class="err">${esc(e.message)}</p><button class="sec" onclick="location.reload()">Neu laden</button>`; }
 }
 async function start() {
   let st;
@@ -205,12 +190,12 @@ async function start() {
     let hint = '';
     try { const h = await (await fetch('/api/health', { headers: { 'X-Requested-With': 'fit' } })).json(); if (h.missing?.length) hint = '<p class="err">Fehlende Konfiguration: ' + esc(h.missing.join(', ')) + '</p>'; } catch {}
     const offline = e instanceof TypeError;
-    app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="sub">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
+    app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="lead">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
   if (!st.authed) return showAuth(st);
-  $('#tabs').hidden = false; render();
-  for (const [k, p] of [['c_week', '/week'], ['c_trends', '/trends']]) api(p).then((d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch {} }).catch(() => {});
+  sub = null; $('#tabs').hidden = false; render();
+  api('/week').then((d) => store.set('c_week', d)).catch(() => {});
 }
-document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+$$('#tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; sub = null; render(); }));
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#tabs').hidden && (tab === 'today' || tab === 'week')) render(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 start();

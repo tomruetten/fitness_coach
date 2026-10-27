@@ -66,3 +66,37 @@ test('Cron nur mit Secret, Registrierung nur mit Setup-Token', async () => {
   assert.ok((await ok.json()).options.challenge);
   t.close();
 });
+
+test('Kraft-Logbuch: Sätze speichern, letztes Mal anzeigen, Analyse', async () => {
+  const t = await boot();
+  const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const post = async (date, kg) => (await t.call('/api/strength/sets', { body: { date, kind: 'strength_a', exercises: [{ id: 'split_squat', name: 'Bulgarische Split-Kniebeuge', sets: [{ weight_kg: kg, reps: 8, done: true }, { weight_kg: kg, reps: 8, done: true }, { weight_kg: kg, reps: 7, done: false }] }] } })).json();
+  assert.equal((await post(day(14), 20)).saved, 3);
+  assert.equal((await post(day(7), 22.5)).saved, 3);
+  const s = await (await t.call('/api/strength/session?kind=strength_a')).json();
+  const ex = s.exercises.find((e) => e.id === 'split_squat');
+  assert.equal(ex.last.sets.length, 2);
+  assert.equal(ex.last.sets[0].kg, 22.5);
+  assert.ok(ex.prefill.length >= 1);
+  const a = await (await t.call('/api/strength/analysis?range=month&ex=split_squat')).json();
+  assert.equal(a.ex.id, 'split_squat');
+  assert.equal(a.hist[0].kg, 22.5);
+  assert.equal(a.hist[0].delta, 2.5);
+  assert.equal(a.labels.length, 5);
+  // eigene Vorlage
+  await t.call('/api/strength/template', { body: { kind: 'strength_a', exercises: [{ name: 'Klimmzüge', sets: 4, reps: '6' }] } });
+  const s2 = await (await t.call('/api/strength/session?kind=strength_a')).json();
+  assert.deepEqual(s2.exercises.map((e) => e.name), ['Klimmzüge']);
+  assert.equal(s2.customized, true);
+  t.close();
+});
+
+test('Trends liefern je Zeitraum die passende Anzahl Werte', async () => {
+  const t = await boot();
+  for (const [r, n] of [['week', 7], ['month', 5], ['year', 12]]) {
+    const d = await (await t.call('/api/trends?range=' + r)).json();
+    assert.equal(d.labels.length, n, r);
+    assert.equal(d.km.length, n, r);
+  }
+  t.close();
+});

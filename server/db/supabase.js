@@ -27,6 +27,20 @@ export function createSupabaseStore(url, serviceKey) {
     async daysSince(date) { return must(await sb.from('fit_daily_health').select('*').gte('date', date).order('date')); },
     async addStrength(rows) { if (rows.length) must(await sb.from('fit_strength_log').insert(rows)); },
     async strengthSince(date) { return must(await sb.from('fit_strength_log').select('*').gte('date', date).order('date')); },
+    async replaceSets(date, rows) {
+      const ids = [...new Set(rows.map((r) => r.exercise_id))];
+      if (ids.length) must(await sb.from('fit_strength_sets').delete().eq('date', date).in('exercise_id', ids));
+      if (rows.length) must(await sb.from('fit_strength_sets').insert(rows));
+    },
+    async setsSince(date) {
+      const out = [];
+      for (let from = 0; ; from += 1000) {
+        const d = must(await sb.from('fit_strength_sets').select('*').gte('date', date).order('date').order('set_no').range(from, from + 999));
+        out.push(...d);
+        if (d.length < 1000) break;
+      }
+      return out;
+    },
     async addPain(row) { must(await sb.from('fit_pain').insert(row)); },
     async painSince(date) { return must(await sb.from('fit_pain').select('*').gte('date', date)); },
     async passkeys() { return must(await sb.from('fit_passkeys').select('*')); },

@@ -7,7 +7,8 @@ import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } fr
 import { loadContext, loadSettings, todayIn } from './context.js';
 import { planDay, planWeek, readiness } from './engine/planner.js';
 import { estimateThreshold } from './engine/threshold.js';
-import { trends } from './engine/trends.js';
+import { trends, trendsWindow } from './engine/trends.js';
+import { sessionFor, strengthAnalysis } from './engine/strength.js';
 import { addDays, weekDates } from './engine/dates.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
@@ -111,7 +112,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const done = ctx.activities.filter((a) => a.local_date === ctx.date);
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
     const { settings, ...rdOut } = rd;
-    res.json({ date: ctx.date, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    let session = null;
+    if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date });
+    res.json({ date: ctx.date, session, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -129,11 +132,62 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     res.json({ activities: [...ctx.activities].reverse().slice(0, n) });
   }));
 
+  const RANGES = ['week', 'month', 'year'];
   app.get('/api/trends', wrap(async (req, res) => {
     const settings = await loadSettings(store);
     const date = todayIn(settings.timezone);
-    const [activities, days] = await Promise.all([store.activitiesSince(addDays(date, -250)), store.daysSince(addDays(date, -90))]);
-    res.json(trends({ activities, days, settings, date }));
+    const range = RANGES.includes(req.query.range) ? req.query.range : 'month';
+    const w = trendsWindow(range, date);
+    const [activities, days] = await Promise.all([store.activitiesSince(w.from), store.daysSince(w.days)]);
+    res.json(trends({ activities, days, settings, date }, range));
+  }));
+
+  // ---- Kraft-Logbuch ---------------------------------------------------------
+  const KINDS = ['strength_a', 'strength_b', 'strength_x'];
+  app.get('/api/strength/session', wrap(async (req, res) => {
+    const kind = KINDS.includes(req.query.kind) ? req.query.kind : 'strength_a';
+    const ctx = await loadContext(store);
+    const plan = planWeek(ctx).find((p) => p.kind === kind) || null;
+    res.json(sessionFor({ plan, kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date }));
+  }));
+  app.post('/api/strength/template', wrap(async (req, res) => {
+    const kind = req.body?.kind;
+    if (!KINDS.includes(kind)) return res.status(400).json({ error: 'Unbekannte Vorlage' });
+    const all = (await store.getSetting('strength_template')) || {};
+    if (req.body.exercises === null) delete all[kind];
+    else {
+      const slug = (n) => 'x_' + String(n).toLowerCase().replace(/[^a-z0-9äöüß]+/g, '_').slice(0, 30);
+      all[kind] = (Array.isArray(req.body.exercises) ? req.body.exercises : []).slice(0, 15).map((e) => {
+        const name = String(e.name || '').trim().slice(0, 60);
+        return { id: String(e.id || slug(name)).slice(0, 40), name, sets: Math.max(1, Math.min(10, Number(e.sets) || 3)), reps: String(e.reps || '8').slice(0, 20) };
+      }).filter((e) => e.name);
+      if (!all[kind].length) delete all[kind];
+    }
+    await store.setSetting('strength_template', all);
+    res.json({ ok: true });
+  }));
+  app.post('/api/strength/sets', wrap(async (req, res) => {
+    const date = isDate(req.body?.date) ? req.body.date : todayIn();
+    const kind = KINDS.includes(req.body?.kind) ? req.body.kind : null;
+    const rows = [];
+    for (const e of (Array.isArray(req.body?.exercises) ? req.body.exercises : []).slice(0, 20)) {
+      const id = String(e.id || '').slice(0, 40), name = String(e.name || '').slice(0, 60);
+      if (!id || !name) continue;
+      (Array.isArray(e.sets) ? e.sets : []).slice(0, 12).forEach((s, i) => {
+        const reps = Math.round(Number(s.reps)), kg = Number(s.weight_kg);
+        if (!(reps >= 0 && reps <= 300) || !(kg >= 0 && kg <= 600)) return;
+        rows.push({ date, kind, exercise_id: id, exercise_name: name, set_no: i + 1, weight_kg: kg, reps, done: s.done !== false });
+      });
+    }
+    await store.replaceSets(date, rows);
+    res.json({ ok: true, saved: rows.length });
+  }));
+  app.get('/api/strength/analysis', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const date = todayIn(settings.timezone);
+    const range = RANGES.includes(req.query.range) ? req.query.range : 'month';
+    const sets = await store.setsSince(addDays(date, -400));
+    res.json(strengthAnalysis({ sets, range, ex: String(req.query.ex || ''), date }));
   }));
 
   app.get('/api/settings', wrap(async (req, res) => {

@@ -2,6 +2,7 @@
 import { DEFAULT_SETTINGS } from './engine/config.js';
 import { withDefaults } from './engine/planner.js';
 import { addDays, mondayOf } from './engine/dates.js';
+import { legacyLog } from './engine/strength.js';
 
 export const todayIn = (tz = DEFAULT_SETTINGS.timezone) =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -21,11 +22,13 @@ export async function loadContext(store, { date } = {}) {
   const settings = await loadSettings(store);
   const today = todayIn(settings.timezone);
   const d = date || today;
-  const [activities, days, strengthLog, pain] = await Promise.all([
+  const [activities, days, oldLog, sets, pain] = await Promise.all([
     store.activitiesSince(addDays(d, -130)),
     store.daysSince(addDays(d, -75)),
     store.strengthSince(addDays(d, -90)),
+    store.setsSince(addDays(d, -120)),
     store.painSince(addDays(d, -30)),
   ]);
-  return { date: d, today, settings, activities, days, strengthLog, pain };
+  const strengthLog = [...oldLog, ...legacyLog(sets.filter((x) => x.date >= addDays(d, -90)))];
+  return { date: d, today, settings, activities, days, strengthLog, sets, pain };
 }

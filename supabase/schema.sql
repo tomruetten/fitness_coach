@@ -54,6 +54,21 @@ create table if not exists fit_strength_log (
 );
 create index if not exists fit_strength_log_ex on fit_strength_log (exercise_id, date desc);
 
+create table if not exists fit_strength_sets (
+  id bigserial primary key,
+  date date not null,
+  kind text,                             -- strength_a | strength_b
+  exercise_id text not null,
+  exercise_name text not null,
+  set_no integer not null,
+  weight_kg real,
+  reps integer,
+  done boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (date, exercise_id, set_no)
+);
+create index if not exists fit_strength_sets_ex on fit_strength_sets (exercise_id, date desc);
+
 create table if not exists fit_pain (
   id bigserial primary key,
   date date not null,
@@ -89,6 +104,7 @@ alter table fit_settings enable row level security;
 alter table fit_activities enable row level security;
 alter table fit_daily_health enable row level security;
 alter table fit_strength_log enable row level security;
+alter table fit_strength_sets enable row level security;
 alter table fit_pain enable row level security;
 alter table fit_passkeys enable row level security;
 alter table fit_challenges enable row level security;
