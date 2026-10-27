@@ -1,0 +1,204 @@
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getStore } from './db/index.js';
+import { clearSessionCookie, isAuthed, requireAuth, requireJsonHeader, setSessionCookie } from './auth/session.js';
+import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } from './auth/passkeys.js';
+import { loadContext, loadSettings, todayIn } from './context.js';
+import { planDay, planWeek, readiness } from './engine/planner.js';
+import { estimateThreshold } from './engine/threshold.js';
+import { trends } from './engine/trends.js';
+import { addDays, weekDates } from './engine/dates.js';
+import { GarminClient } from './garmin/client.js';
+import { runSync } from './garmin/sync.js';
+import { timingSafeEqual } from 'crypto';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s));
+const safeEq = (a, b) => { const x = Buffer.from(String(a)); const y = Buffer.from(String(b)); return x.length === y.length && timingSafeEqual(x, y); };
+
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+/** @param {{store?:object, garmin?:()=>GarminClient, serveStatic?:boolean}} o */
+export function createApp({ store = getStore(), garmin = null, serveStatic = false } = {}) {
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '200kb' }));
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+  app.use('/api', requireJsonHeader);
+
+  const garminClient = () => {
+    if (garmin) return garmin();
+    return new GarminClient({
+      apiKey: process.env.GARMIN_PERSONAL_API_KEY,
+      tokenCache: { get: () => store.getSetting('garmin_token'), set: (v) => store.setSetting('garmin_token', v) },
+    });
+  };
+
+  app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+  // ---- Anmeldung -------------------------------------------------------------
+  app.get('/api/auth/state', wrap(async (req, res) => {
+    const keys = await store.passkeys();
+    res.json({ setupNeeded: keys.length === 0, authed: isAuthed(req), passkeys: isAuthed(req) ? keys.map((k) => ({ id: k.id, label: k.label, created_at: k.created_at })) : undefined });
+  }));
+
+  // Erste Einrichtung nur mit SETUP_TOKEN; weitere Geräte nur mit bestehender Anmeldung.
+  const canRegister = async (req) => {
+    const keys = await store.passkeys();
+    if (keys.length > 0) return isAuthed(req);
+    const t = process.env.SETUP_TOKEN;
+    return !!t && safeEq(req.body?.setupToken || '', t);
+  };
+  app.post('/api/auth/register/options', wrap(async (req, res) => {
+    if (!(await canRegister(req))) return res.status(403).json({ error: 'Nicht erlaubt' });
+    res.json(await registrationOptions(store, req));
+  }));
+  app.post('/api/auth/register/verify', wrap(async (req, res) => {
+    if (!(await canRegister(req))) return res.status(403).json({ error: 'Nicht erlaubt' });
+    await verifyRegistration(store, req, req.body);
+    setSessionCookie(res);
+    res.json({ ok: true });
+  }));
+  app.post('/api/auth/login/options', wrap(async (req, res) => res.json(await loginOptions(store, req))));
+  app.post('/api/auth/login/verify', wrap(async (req, res) => {
+    await verifyLogin(store, req, req.body);
+    setSessionCookie(res);
+    res.json({ ok: true });
+  }));
+  app.post('/api/auth/logout', (req, res) => { clearSessionCookie(res); res.json({ ok: true }); });
+
+  // ---- Cron (Vercel sendet CRON_SECRET als Bearer-Token) -----------------------
+  app.get('/api/cron/sync', wrap(async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const given = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!secret || !safeEq(given, secret)) return res.status(401).json({ error: 'Nicht erlaubt' });
+    const settings = await loadSettings(store);
+    let total = 0;
+    for (let i = 0; i < 5; i++) {
+      const r = await runSync(garminClient(), store, { settings, maxNew: 6, deadlineMs: 40000 });
+      total += r.added;
+      if (r.done) break;
+    }
+    res.json({ ok: true, added: total });
+  }));
+
+  app.use('/api', requireAuth);
+
+  // ---- Daten -------------------------------------------------------------
+  app.get('/api/today', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    const rd = readiness(ctx);
+    const plan = planDay(ctx, { rd });
+    const done = ctx.activities.filter((a) => a.local_date === ctx.date);
+    const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
+    const last = await store.getSetting('last_sync');
+    const { settings, ...rdOut } = rd;
+    res.json({ date: ctx.date, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+  }));
+
+  app.get('/api/week', wrap(async (req, res) => {
+    const date = isDate(req.query.date) ? req.query.date : undefined;
+    const ctx = await loadContext(store, { date });
+    const plans = planWeek({ ...ctx, today: ctx.today });
+    const dates = weekDates(ctx.date);
+    const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, load: a.load })) }));
+    res.json({ today: ctx.today, week });
+  }));
+
+  app.get('/api/activities', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    const n = Math.min(60, Number(req.query.limit) || 25);
+    res.json({ activities: [...ctx.activities].reverse().slice(0, n) });
+  }));
+
+  app.get('/api/trends', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const date = todayIn(settings.timezone);
+    const [activities, days] = await Promise.all([store.activitiesSince(addDays(date, -250)), store.daysSince(addDays(date, -90))]);
+    res.json(trends({ activities, days, settings, date }));
+  }));
+
+  app.get('/api/settings', wrap(async (req, res) => {
+    const s = await loadSettings(store);
+    const { _z2from, _z2to, _z4from, ...out } = s;
+    res.json(out);
+  }));
+  app.post('/api/settings', wrap(async (req, res) => {
+    const saved = (await store.getSetting('settings')) || {};
+    const b = req.body || {};
+    const next = { ...saved };
+    const num = (v, lo, hi) => (Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : undefined);
+    for (const [k, lo, hi] of [['lthr', 120, 210], ['max_hr', 140, 220], ['lt_pace_s', 180, 480], ['easy_pace_s', 240, 600], ['strength_max_min', 20, 180]]) {
+      const v = num(b[k], lo, hi);
+      if (v !== undefined) next[k] = v;
+    }
+    if (b.goal) {
+      const g = { ...(saved.goal || {}) };
+      if (num(b.goal.time_s, 600, 40000) !== undefined) g.time_s = num(b.goal.time_s, 600, 40000);
+      if (num(b.goal.distance_km, 1, 100) !== undefined) g.distance_km = num(b.goal.distance_km, 1, 100);
+      if (b.goal.date === null || b.goal.date === '') g.date = null;
+      else if (isDate(b.goal.date)) g.date = b.goal.date;
+      next.goal = g;
+    }
+    await store.setSetting('settings', next);
+    res.json({ ok: true });
+  }));
+  app.post('/api/threshold/apply', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
+    const saved = (await store.getSetting('settings')) || {};
+    const next = { ...saved, ...est.suggestion };
+    if (est.easyPace) next.easy_pace_s = est.easyPace;
+    await store.setSetting('settings', next);
+    res.json({ ok: true, applied: { ...est.suggestion, ...(est.easyPace ? { easy_pace_s: est.easyPace } : {}) } });
+  }));
+
+  app.post('/api/strength/log', wrap(async (req, res) => {
+    const rows = (Array.isArray(req.body?.entries) ? req.body.entries : []).slice(0, 40).map((e) => ({
+      date: isDate(e.date) ? e.date : todayIn(),
+      exercise_id: String(e.exercise_id || '').slice(0, 40),
+      sets: Number.isFinite(Number(e.sets)) ? Number(e.sets) : null,
+      reps: e.reps ? String(e.reps).slice(0, 30) : null,
+      weight_kg: Number.isFinite(Number(e.weight_kg)) ? Number(e.weight_kg) : null,
+      done_all: e.done_all !== false,
+      rpe: Number.isFinite(Number(e.rpe)) ? Number(e.rpe) : null,
+    })).filter((r) => r.exercise_id);
+    await store.addStrength(rows);
+    res.json({ ok: true, saved: rows.length });
+  }));
+  app.post('/api/pain', wrap(async (req, res) => {
+    const level = Number(req.body?.level);
+    if (!Number.isInteger(level) || level < 0 || level > 10) return res.status(400).json({ error: 'Schmerz 0 bis 10' });
+    await store.addPain({ date: isDate(req.body.date) ? req.body.date : todayIn(), level, area: req.body.area ? String(req.body.area).slice(0, 40) : null });
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/sync', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const r = await runSync(garminClient(), store, { settings, maxNew: 6, deadlineMs: 40000, historyFrom: isDate(req.body?.from) ? req.body.from : null });
+    res.json(r);
+  }));
+
+  app.use('/api', (req, res) => res.status(404).json({ error: 'Nicht gefunden' }));
+
+  if (serveStatic) {
+    const pub = path.join(here, '..', 'public');
+    app.use(express.static(pub, { setHeaders: (res, p) => { if (/sw\.js$|index\.html$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } }));
+    app.get('*', (req, res) => res.sendFile(path.join(pub, 'index.html')));
+  }
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    const status = err.status || 500;
+    if (status >= 500) console.error('Fehler:', err);
+    res.status(status).json({ error: status >= 500 ? 'Serverfehler' : err.message });
+  });
+  return app;
+}

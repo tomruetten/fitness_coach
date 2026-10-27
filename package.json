@@ -1,0 +1,22 @@
+{
+  "name": "fitness-coach",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Garmin-basierte Trainingsplan-App (Laufen, Kraft, Rad) – Vercel + Supabase",
+  "type": "module",
+  "engines": { "node": "20.x || 22.x" },
+  "scripts": {
+    "dev": "node --watch server/dev.js",
+    "start": "node server/dev.js",
+    "test": "node --test \"test/*.test.js\"",
+    "import:fit": "node scripts/import-local.js",
+    "simulate": "node scripts/simulate.js"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "^13.1.1",
+    "@supabase/supabase-js": "^2.106.1",
+    "express": "^4.21.2",
+    "fflate": "^0.8.2",
+    "fit-file-parser": "^1.21.0"
+  }
+}
