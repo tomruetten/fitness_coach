@@ -95,8 +95,7 @@ function planCard(p, { hero = true } = {}) {
     ${steps ? `<ul class="steps">${steps}</ul>` : ''}${why}</div>`;
 }
 
-async function viewToday() {
-  const { d, stale } = await cached('c_today', '/today');
+function drawToday(d, stale) {
   const p = d.plan, rd = d.readiness;
   const lvl = { good: 'Erholung gut', medium: 'Erholung mittel', low: 'Erholung niedrig' }[rd.level] || '';
   let html = `<h1>Heute</h1><p class="sub">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · <span class="err">offline, letzter Stand</span>' : ''}</p>
@@ -124,8 +123,7 @@ async function viewToday() {
   }));
 }
 
-async function viewWeek() {
-  const { d, stale } = await cached('c_week', '/week');
+function drawWeek(d, stale) {
   const names = { rest: 'Ruhetag' };
   app.innerHTML = `<h1>Woche</h1><p class="sub">Sportart fix, Inhalt passt sich an.${stale ? ' <span class="err">Offline-Stand</span>' : ''}</p><div class="week">${d.week.map((p) => {
     const t = p.targets || {}; const meta = [t.distance_km && t.distance_km + ' km', t.duration_min && t.duration_min + ' min'].filter(Boolean).join(' · ');
@@ -133,8 +131,7 @@ async function viewWeek() {
   }).join('')}</div>`;
 }
 
-async function viewTrends() {
-  const { d } = await cached('c_trends', '/trends');
+function drawTrends(d, stale) {
   const w = d.weekly, lab = w.map((x) => dmy(x.week).slice(0, 5));
   const zsum = [0, 0, 0, 0, 0]; w.slice(-6).forEach((x) => x.zone_s.forEach((s, i) => { zsum[i] += s; }));
   app.innerHTML = `<h1>Trends</h1><p class="sub">Letzte 12 Wochen</p>
@@ -177,11 +174,30 @@ async function viewMore() {
   $('#out').onclick = async () => { await api('/auth/logout', {}); start(); };
 }
 
-const views = { today: viewToday, week: viewWeek, trends: viewTrends, more: viewMore };
+const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek], trends: ['c_trends', '/trends', drawTrends] };
+let renderId = 0;
 async function render() {
+  const my = ++renderId;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  try { await views[tab](); window.scrollTo(0, 0); }
-  catch (e) { if (e.auth) return start(); app.innerHTML = `<h1>Ups</h1><p class="err">${esc(e.message)}</p><button class="sec" onclick="location.reload()">Neu laden</button>`; }
+  window.scrollTo(0, 0);
+  try {
+    if (tab === 'more') { await viewMore(); return; }
+    const [key, path, draw] = views[tab];
+    let shown = null;
+    try { shown = localStorage.getItem(key); } catch {}
+    if (shown) draw(JSON.parse(shown), false); // sofort den letzten Stand zeigen, dann aktualisieren
+    else app.innerHTML = '<p class="sub" style="margin-top:40vh;text-align:center">Lädt …</p>';
+    try {
+      const d = await api(path);
+      const txt = JSON.stringify(d);
+      try { localStorage.setItem(key, txt); } catch {}
+      if (my === renderId && txt !== shown) draw(d, false);
+    } catch (e) {
+      if (e.auth) throw e;
+      if (!shown) throw e;
+      if (my === renderId) draw(JSON.parse(shown), true);
+    }
+  } catch (e) { if (e.auth) return start(); if (my === renderId) app.innerHTML = `<h1>Ups</h1><p class="err">${esc(e.message)}</p><button class="sec" onclick="location.reload()">Neu laden</button>`; }
 }
 async function start() {
   let st;
@@ -192,6 +208,7 @@ async function start() {
     app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="sub">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
   if (!st.authed) return showAuth(st);
   $('#tabs').hidden = false; render();
+  for (const [k, p] of [['c_week', '/week'], ['c_trends', '/trends']]) api(p).then((d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch {} }).catch(() => {});
 }
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#tabs').hidden && (tab === 'today' || tab === 'week')) render(); });

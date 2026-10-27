@@ -105,12 +105,11 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
 
   // ---- Daten -------------------------------------------------------------
   app.get('/api/today', wrap(async (req, res) => {
-    const ctx = await loadContext(store);
+    const [ctx, last] = await Promise.all([loadContext(store), store.getSetting('last_sync')]);
     const rd = readiness(ctx);
     const plan = planDay(ctx, { rd });
     const done = ctx.activities.filter((a) => a.local_date === ctx.date);
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
-    const last = await store.getSetting('last_sync');
     const { settings, ...rdOut } = rd;
     res.json({ date: ctx.date, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
