@@ -34,7 +34,7 @@ export function trends(ctx) {
   }
   const paceZ2 = Object.entries(months).sort().map(([month, v]) => ({ month, pace_s: v.length >= 4 ? Math.round(median(v)) : null, n: v.length })).slice(-8);
 
-  const hrv = days.filter((d) => d.hrv_avg != null && diffDays(date, d.date) <= 60 && diffDays(date, d.date) >= 0).map((d) => ({ date: d.date, hrv: d.hrv_avg, rhr: d.resting_hr ?? null }));
+  const hrv = days.filter((d) => (d.hrv_avg != null || d.resting_hr != null) && diffDays(date, d.date) <= 60 && diffDays(date, d.date) >= 0).map((d) => ({ date: d.date, hrv: d.hrv_avg ?? null, rhr: d.resting_hr ?? null }));
 
   const acwr = [];
   for (let i = 55; i >= 0; i--) {

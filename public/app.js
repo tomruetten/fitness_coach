@@ -166,8 +166,8 @@ async function viewMore() {
     try { await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT($('#ltp').value), easy_pace_s: parseT($('#ezp').value), goal: { time_s: parseT($('#gt').value), date: $('#gd').value || null } }); toast('Gespeichert'); } catch (e) { toast(e.message); }
   };
   const doSync = async (from) => {
-    $('#sync').disabled = $('#hist').disabled = true; let added = 0;
-    try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.done) break; } $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.`; }
+    $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;
+    try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.health) lastHealth = r.health; if (r.done) break; } const h = lastHealth; $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.` + (h ? ` Tageswerte: ${h.rows} Tage (HRV ${h.hrv}, Ruhepuls ${h.rhr}, Schlaf ${h.sleep})${h.errors?.length ? '. Fehler: ' + h.errors.join('; ') : ''}` : ''); }
     catch (e) { $('#syncInfo').textContent = 'Fehler: ' + e.message; }
     $('#sync').disabled = $('#hist').disabled = false;
   };

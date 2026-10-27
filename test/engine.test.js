@@ -47,3 +47,16 @@ test('Schmerz entfernt belastende Übungen oder meldet es', () => {
 test('Edwards-Load wächst mit der Zeit in hohen Zonen', () => {
   assert.ok(edwardsLoad([0, 0, 0, 600, 0]) > edwardsLoad([0, 600, 0, 0, 0]));
 });
+
+import { mapHealth, listOf } from '../server/garmin/sync.js';
+test('Garmin-Antworten in verschiedenen Verpackungen werden gelesen', () => {
+  assert.equal(listOf([{ a: 1 }]).length, 1);
+  assert.equal(listOf({ hrvSummaries: [{ a: 1 }, { a: 2 }] }, 'hrvSummaries').length, 2);
+  assert.equal(listOf({ irgendwas: [{ a: 1 }] }).length, 1);
+  const rows = mapHealth({
+    summaries: [{ calendarDate: '2026-10-01', heartRate: { restingValue: 50 } }],
+    sleeps: [{ calendarDate: '2026-10-01', sleepTimeSeconds: 25000 }],
+    hrvs: [{ calendarDate: '2026-10-01', lastNightAvg: 55, status: 'BALANCED' }],
+  });
+  assert.deepEqual([rows[0].resting_hr, rows[0].sleep_s, rows[0].hrv_avg], [50, 25000, 55]);
+});
