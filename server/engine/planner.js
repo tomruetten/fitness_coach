@@ -17,6 +17,13 @@ export function withDefaults(settings = {}) {
   return s;
 }
 
+/** Einheit eines Tages: eigene Verschiebung (settings._ov) oder feste Wochenstruktur. */
+export function slotOf(settings, d) {
+  const k = settings._ov?.[d];
+  if (k) return Object.values(settings.week).find((s) => s.kind === k) || { kind: 'rest', label: 'Ruhe' };
+  return settings.week[weekday(d)] || { kind: 'rest', label: 'Ruhe' };
+}
+
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
 /** Laufkilometer je Woche (Schlüssel = Montag). */
@@ -45,7 +52,7 @@ export function missedRuns(settings, activities, date) {
   for (let i = 1; i <= 14; i++) {
     const d = addDays(date, -i);
     if (d < firstAct) break;
-    const kind = settings.week[weekday(d)]?.kind;
+    const kind = slotOf(settings, d).kind;
     if (kind !== 'run_quality' && kind !== 'run_long') continue;
     if (!runDates.has(d) && !runDates.has(addDays(d, 1)) && !runDates.has(addDays(d, -1))) missed.push(d);
   }
@@ -88,11 +95,11 @@ export function planDay(ctx, opts = {}) {
   const acts = ctx.activities || [];
   const block = blockFor(date, settings);
   const wd = weekday(date);
-  const slot = settings.week[wd] || { kind: 'rest', label: 'Ruhe' };
+  const slot = slotOf(settings, date);
   const why = [];
   const rd = opts.provisional ? { level: 'good', signals: [], acwr: null } : opts.rd || readiness({ ...ctx, settings });
   const level = rd.level;
-  const base = { date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional };
+  const base = { date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional, moved: !!settings._ov?.[date] && settings._ov[date] !== (settings.week[wd]?.kind || 'rest') };
 
   if (block.deload) why.push({ rule: 'R-DELOAD', text: `Entlastungswoche im ${BLOCK_LABEL[block.name]}-Block: Umfang etwa 20 % niedriger` });
   const loadHigh = rd.signals?.some((s) => s.id === 'R-LOAD');

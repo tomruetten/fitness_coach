@@ -89,3 +89,9 @@ nav#tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:rgba(249
 nav#tabs[hidden]{display:none}nav button{flex:1;background:none;border:0;color:var(--mute);font:inherit;font-size:10.5px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;padding:0}
 nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}nav button.on{color:var(--acc)}
 #toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:99px;opacity:0;transition:.25s;pointer-events:none;font-size:14px;max-width:90vw;z-index:10}#toast.show{opacity:1;transform:translate(-50%,0)}
+/* Woche bearbeiten */
+.edit-hint{margin:0 4px}
+.days.editing .day{touch-action:pan-y;transition:box-shadow .15s,transform .15s}
+.day.sel{box-shadow:inset 0 0 0 2px var(--purple)}.day.lock{opacity:.45}
+.day.drag{position:relative;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.18);transition:none}.day.target{box-shadow:inset 0 0 0 2px var(--acc)}
+.grip{display:flex;padding:8px;margin:-8px -8px -8px 0;touch-action:none;cursor:grab}

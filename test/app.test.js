@@ -100,3 +100,23 @@ test('Trends liefern je Zeitraum die passende Anzahl Werte', async () => {
   }
   t.close();
 });
+
+test('Woche umplanen: Einheiten tauschen und zurücksetzen', async () => {
+  const t = await boot();
+  const w = (await (await t.call('/api/week')).json()).week;
+  const kinds = w.map((p) => p.kind);
+  const i = kinds.indexOf('run_quality'), j = kinds.indexOf('strength_a');
+  const swapped = [...kinds]; [swapped[i], swapped[j]] = [swapped[j], swapped[i]];
+  const days = Object.fromEntries(w.map((p, k) => [p.date, swapped[k]]));
+  assert.equal((await t.call('/api/week/plan', { body: { days: { ...days, [w[0].date]: 'spinning' } } })).status, 400);
+  assert.equal((await t.call('/api/week/plan', { body: { days } })).status, 200);
+  const w2 = (await (await t.call('/api/week')).json()).week;
+  assert.equal(w2[i].kind, 'strength_a');
+  assert.equal(w2[j].kind, 'run_quality');
+  assert.ok(w2[i].moved && w2[j].moved);
+  assert.equal(w2[0].moved, false);
+  assert.equal((await t.call('/api/week/plan', { body: { reset: true } })).status, 200);
+  const w3 = (await (await t.call('/api/week')).json()).week;
+  assert.deepEqual(w3.map((p) => p.kind), kinds);
+  t.close();
+});

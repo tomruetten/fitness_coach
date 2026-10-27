@@ -9,7 +9,7 @@ import { planDay, planWeek, readiness } from './engine/planner.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { trends, trendsWindow } from './engine/trends.js';
 import { sessionFor, strengthAnalysis } from './engine/strength.js';
-import { addDays, weekDates } from './engine/dates.js';
+import { addDays, weekDates, weekday } from './engine/dates.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
 import { timingSafeEqual } from 'crypto';
@@ -130,6 +130,25 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ctx = await loadContext(store);
     const n = Math.min(60, Number(req.query.limit) || 25);
     res.json({ activities: [...ctx.activities].reverse().slice(0, n) });
+  }));
+
+  // Woche umplanen: Einheiten zwischen Tagen der laufenden Woche tauschen (Datum -> Einheit).
+  app.post('/api/week/plan', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const today = todayIn(settings.timezone);
+    const dates = weekDates(today);
+    const all = (await store.getSetting('day_overrides')) || {};
+    if (req.body?.reset) dates.forEach((d) => delete all[d]);
+    else {
+      const given = req.body?.days || {};
+      const kinds = Object.values(settings.week).map((s) => s.kind).sort();
+      const mine = dates.map((d) => given[d]);
+      if (mine.some((k) => !k) || [...mine].sort().join() !== kinds.join()) return res.status(400).json({ error: 'Ungültige Wochenplanung' });
+      dates.forEach((d, i) => { if (mine[i] === (settings.week[weekday(d)]?.kind)) delete all[d]; else all[d] = mine[i]; });
+    }
+    for (const k of Object.keys(all)) if (k < addDays(today, -60)) delete all[k];
+    await store.setSetting('day_overrides', all);
+    res.json({ ok: true });
   }));
 
   const RANGES = ['week', 'month', 'year'];

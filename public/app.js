@@ -110,21 +110,62 @@ function drawToday(d, stale) {
 const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const dm = (iso) => `${Number(iso.slice(8, 10))}. ${MON[Number(iso.slice(5, 7)) - 1]}`;
 const check = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="erledigt" role="img"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>';
+let weekEdit = null; // {order:[Plan], sel:null|index} solange die Woche bearbeitet wird
+const GRIP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg>';
 function drawWeek(d, stale) {
-  const w = d.week;
+  const w = weekEdit ? weekEdit.order : d.week; // Tage (Datum) bleiben, Einheiten wandern
+  const dates = d.week.map((p) => p.date);
   const c = { run: [0, 0], strength: [0, 0], spin: [0, 0] };
-  w.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (p.done?.length) c[g][0]++; } });
-  const b0 = w[0]?.block;
+  d.week.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (p.done?.length) c[g][0]++; } });
+  const b0 = d.week[0]?.block;
   const prog = (l, [a, n], col) => `<div class="pc"><span>${l}</span><b>${a}<small> / ${n}</small></b><div class="pt"><i style="width:${n ? Math.round(a / n * 100) : 0}%;background:${col}"></i></div></div>`;
-  app.innerHTML = `<div class="head"><div class="eyebrow">${dm(w[0].date)} – ${dm(w[6].date)}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div>
-    <div class="card prog3">${prog('Laufen', c.run, '#FF6B2C')}${prog('Kraft', c.strength, '#AF52DE')}${prog('Spinning', c.spin, '#0A84FF')}</div>
-    <div class="days">${w.map((p) => {
-    const g = group(p.kind), t = p.targets || {}, today = p.date === d.today, rest = g === 'rest';
+  const locked = (p, i) => p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
+  const anyMoved = d.week.some((p) => p.moved);
+  app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">${dm(dates[0])} – ${dm(dates[6])}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div><button type="button" class="textbtn" id="wedit">${weekEdit ? 'Fertig' : 'Bearbeiten'}</button></div>
+    ${weekEdit ? '<p class="foot edit-hint">Ziehe eine Einheit am Griff auf einen anderen Tag oder tippe zwei Tage nacheinander an, um sie zu tauschen. Spinning und vergangene Tage bleiben fest.</p>' : `<div class="card prog3">${prog('Laufen', c.run, '#FF6B2C')}${prog('Kraft', c.strength, '#AF52DE')}${prog('Spinning', c.spin, '#0A84FF')}</div>`}
+    <div class="days${weekEdit ? ' editing' : ''}" id="days">${w.map((p, i) => {
+    const g = group(p.kind), t = p.targets || {}, today = dates[i] === d.today, rest = g === 'rest', lock = locked(p, i);
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
-    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
-    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}"${g === 'strength' ? ` data-kind="${p.kind}"` : ''}><div class="dd"><span>${esc(p.weekday.slice(0, 2))}</span><b>${Number(p.date.slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${p.done?.length ? check : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
-  }).join('')}</div>`;
+    const moved = weekEdit ? p.date !== dates[i] || p.moved : p.moved;
+    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', moved ? 'verschoben' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${g === 'strength' && !weekEdit ? ` data-kind="${p.kind}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : d.week[i].done?.length ? check : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
+  }).join('')}</div>
+    ${weekEdit && (anyMoved || weekEdit.order.some((p, i) => p.date !== dates[i])) ? '<button type="button" class="link" id="wreset">Auf Standardwoche zurücksetzen</button>' : ''}`;
   $$('.day[data-kind]', app).forEach((r) => r.addEventListener('click', () => go('prep', { kind: r.dataset.kind })));
+  $('#wedit').onclick = async () => {
+    if (!weekEdit) { weekEdit = { order: [...d.week], sel: null }; return drawWeek(d, stale); }
+    const days = Object.fromEntries(dates.map((dt, i) => [dt, weekEdit.order[i].kind]));
+    const changed = weekEdit.order.some((p, i) => p.date !== dates[i]);
+    weekEdit = null;
+    if (changed) { try { await api('/week/plan', { days }); store.del('c_today'); toast('Woche gespeichert'); } catch (e) { toast(e.message); } }
+    render();
+  };
+  $('#wreset')?.addEventListener('click', async () => { try { await api('/week/plan', { reset: true }); store.del('c_today'); weekEdit = null; toast('Standardwoche'); render(); } catch (e) { toast(e.message); } });
+  if (!weekEdit) return;
+  const swap = (i, j) => { const o = weekEdit.order; [o[i], o[j]] = [o[j], o[i]]; weekEdit.sel = null; drawWeek(d, stale); };
+  $$('.day', app).forEach((r) => r.addEventListener('click', () => {
+    const i = Number(r.dataset.i); if (locked(weekEdit.order[i], i)) return;
+    if (weekEdit.sel == null) { weekEdit.sel = i; drawWeek(d, stale); } else if (weekEdit.sel === i) { weekEdit.sel = null; drawWeek(d, stale); } else swap(weekEdit.sel, i);
+  }));
+  // Ziehen am Griff
+  $$('.grip', app).forEach((g) => g.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const i = Number(g.dataset.grip), row = g.closest('.day'), rows = $$('.day', app);
+    const y0 = ev.clientY; let target = -1, moved = false;
+    g.setPointerCapture(ev.pointerId);
+    const hit = (y) => rows.findIndex((r, k) => k !== i && !locked(weekEdit.order[k], k) && y >= r.getBoundingClientRect().top && y <= r.getBoundingClientRect().bottom);
+    const mv = (e) => {
+      const dy = e.clientY - y0; if (Math.abs(dy) > 4) moved = true;
+      row.style.transform = `translateY(${dy}px)`; row.classList.add('drag');
+      const h = hit(e.clientY); if (h !== target) { rows.forEach((r) => r.classList.remove('target')); if (h >= 0) rows[h].classList.add('target'); target = h; }
+    };
+    const up = () => {
+      g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
+      row.style.transform = ''; row.classList.remove('drag');
+      if (moved) { g.addEventListener('click', (e) => e.stopPropagation(), { once: true, capture: true }); if (target >= 0) swap(i, target); else drawWeek(d, stale); }
+    };
+    g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+  }));
 }
 
 async function viewMore() {
@@ -169,6 +210,7 @@ function go(view, o = {}) {
 }
 async function render() {
   const my = ++renderId;
+  if (tab !== 'week' || sub) weekEdit = null;
   const isCurrent = () => my === renderId;
   clearInterval(viewLog.tm);
   $$('#tabs button').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
