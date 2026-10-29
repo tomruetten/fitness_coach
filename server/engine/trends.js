@@ -10,7 +10,7 @@ const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
 /** Zeitraum, den die Datenbank für `range` laden muss. */
 export function trendsWindow(range, date) {
   const { list } = buckets(range, date);
-  return { from: addDays(list[0].from, -30), days: addDays(list[0].from, 0) };
+  return { from: addDays(list[0].from, -30), days: [addDays(list[0].from, 0), addDays(date, -60)].sort()[0] };
 }
 
 export function trends(ctx, range = 'month') {
@@ -21,6 +21,15 @@ export function trends(ctx, range = 'month') {
 
   const minRunsForPace = range === 'week' ? 1 : 2;
   const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [] };
+  // Normalbereich: Mittel ± 1 Standardabweichung der Tageswerte der letzten 60 Tage
+  const band = (key) => {
+    const v = days.filter((d) => d.date > addDays(date, -60) && d.date <= date).map((d) => d[key]).filter(Number.isFinite);
+    if (v.length < 14) return null;
+    const m = mean(v), sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1));
+    return [r1(m - sd), r1(m + sd)];
+  };
+  out.hrv_band = band('hrv_avg');
+  out.rhr_band = band('resting_hr');
   const total = [0, 0, 0, 0, 0];
   let runs = 0, km = 0, time = 0;
 
