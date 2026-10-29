@@ -13,6 +13,9 @@ export function isoWeek(d) {
 
 const dm = (d) => `${d.slice(8, 10)}.${d.slice(5, 7)}.`;
 
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
 export function buckets(range, date) {
   let list;
   let sub;
@@ -36,5 +39,6 @@ export function buckets(range, date) {
     });
     sub = 'Letzte 5 Wochen';
   }
-  return { list: list.map((b) => ({ ...b, future: b.from > date })), sub };
+  const name = (b, i) => (range === 'week' ? `${WD[i]} ${dm(b.from)}` : range === 'year' ? `${MONTHS[i]} ${b.from.slice(0, 4)}` : `${b.label} · ${dm(b.from)}–${dm(b.to)}`);
+  return { list: list.map((b, i) => ({ ...b, name: name(b, i), future: b.from > date })), sub };
 }

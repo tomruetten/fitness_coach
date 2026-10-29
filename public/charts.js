@@ -77,10 +77,43 @@ export function chartCard(o) {
       const t = topPct(o.ref.v);
       plot += `<div class="ref" style="top:${t.toFixed(2)}%;border-color:${o.ref.c}"></div><div class="reflabel" style="top:${t.toFixed(2)}%;color:${o.ref.c}">${esc(o.ref.t)}</div>`;
     }
+    const tipOf = (i) => {
+      const nm = o.names?.[i] || o.labels[i];
+      if (o.type === 'stack') return o.vals[i] ? `${nm}<br>${o.vals[i].map((p, k) => (p ? `Z${k + 1} ${p} %` : '')).filter(Boolean).join(' · ')}` : null;
+      const v = o.vals[i];
+      if (!has(v) || (o.type === 'bars' && !(v > 0))) return null;
+      return `${nm}<br><b>${(o.tipFmt || o.fmt)(v)}${o.unit ? ' ' + o.unit : ''}</b>`;
+    };
+    o.labels.forEach((l, i) => {
+      const tip = tipOf(i);
+      if (tip == null) return;
+      const top = o.type === 'stack' ? 0 : o.type === 'bars' ? Math.min(100, topPct(o.vals[i])) : Math.min(100, Math.max(0, topPct(o.vals[i])));
+      plot += `<button type="button" class="hit" data-x="${cx(i).toFixed(2)}" data-top="${top.toFixed(2)}" data-tip="${esc(tip)}" aria-label="${esc(tip.replace(/<[^>]+>/g, ' '))}" style="left:${(cx(i) - 50 / n).toFixed(2)}%;width:${(100 / n).toFixed(2)}%"></button>`;
+    });
     o.labels.forEach((l, i) => { plot += `<div class="xl" style="left:${cx(i).toFixed(2)}%">${esc(l)}</div>`; });
     html += `<div class="plot" style="height:${H}px" role="img" aria-label="${esc(o.title)}">${plot}</div>`;
   }
   if (o.legend?.length) html += `<div class="legend">${o.legend.map((l) => `<span><i style="background:${l.c}"></i>${esc(l.t)}</span>`).join('')}</div>`;
   if (o.hint) html += `<p class="hint">${esc(o.hint)}</p>`;
   return html + '</section>';
+}
+
+/** Antippen eines Datenpunkts zeigt den genauen Wert. */
+export function wireCharts(root) {
+  root.addEventListener('click', (ev) => {
+    const hit = ev.target.closest?.('.hit');
+    const plots = root.querySelectorAll('.plot');
+    const clear = (p) => p.querySelectorAll('.tip,.vline').forEach((x) => x.remove());
+    if (!hit) { plots.forEach(clear); return; }
+    const plot = hit.closest('.plot');
+    const same = plot.querySelector('.tip')?.dataset.x === hit.dataset.x;
+    plots.forEach(clear);
+    if (same) return;
+    const x = Number(hit.dataset.x), top = Number(hit.dataset.top);
+    const line = document.createElement('div'); line.className = 'vline'; line.style.left = x + '%';
+    const tip = document.createElement('div'); tip.className = 'tip' + (x < 22 ? ' l' : x > 78 ? ' r' : ''); tip.dataset.x = hit.dataset.x;
+    tip.style.left = x + '%'; tip.style.top = `calc(${top}% - 10px)`; tip.innerHTML = hit.dataset.tip;
+    if (top < 28) { tip.classList.add('below'); tip.style.top = `calc(${top}% + 12px)`; }
+    plot.append(line, tip);
+  });
 }

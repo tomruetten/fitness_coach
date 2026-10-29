@@ -201,6 +201,27 @@ async function viewMore() {
 }
 
 
+// ---- Automatische Synchronisierung ------------------------------------------
+let syncing = false;
+async function autoSync(force = false) {
+  const last = store.get('auto_sync') || 0;
+  if (syncing || (!force && Date.now() - last < 10 * 60 * 1000)) return;
+  syncing = true;
+  try {
+    let added = 0, health = 0;
+    for (let i = 0; i < 8; i++) {
+      const r = await api('/sync', {});
+      added += r.added || 0; health += r.healthRows || 0;
+      if (r.done) break;
+    }
+    store.set('auto_sync', Date.now());
+    if (added || health) {
+      if (added) toast(added === 1 ? 'Neue Aktivität geladen' : `${added} neue Aktivitäten geladen`);
+      if (!sub && !weekEdit && !$('#tabs').hidden && tab !== 'more') render();
+    }
+  } catch (e) { if (e.auth) start(); /* sonst still: Garmin gerade nicht erreichbar */ } finally { syncing = false; }
+}
+
 // ---- Navigation ------------------------------------------------------------
 const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek] };
 let renderId = 0;
@@ -234,10 +255,10 @@ async function start() {
     const offline = e instanceof TypeError;
     app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="lead">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
   if (!st.authed) return showAuth(st);
-  sub = null; $('#tabs').hidden = false; render();
+  sub = null; $('#tabs').hidden = false; render(); autoSync();
   api('/week').then((d) => store.set('c_week', d)).catch(() => {});
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; sub = null; render(); }));
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#tabs').hidden && (tab === 'today' || tab === 'week')) render(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 start();

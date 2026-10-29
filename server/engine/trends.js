@@ -20,12 +20,12 @@ export function trends(ctx, range = 'month') {
   const isRun = (a) => a.sport === 'running' && a.distance_m > 1500;
 
   const minRunsForPace = range === 'week' ? 1 : 2;
-  const out = { range, sub, labels: list.map((b) => b.label), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [] };
+  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [] };
   const total = [0, 0, 0, 0, 0];
   let runs = 0, km = 0, time = 0;
 
   for (const b of list) {
-    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); continue; }
+    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); out.cad.push(null); continue; }
     const inB = activities.filter((a) => a.local_date >= b.from && a.local_date <= b.to);
     const rs = inB.filter(isRun);
     const bKm = rs.reduce((a, r) => a + r.distance_m, 0) / 1000;
@@ -52,6 +52,8 @@ export function trends(ctx, range = 'month') {
 
     const g = rs.map((r) => r.gct_ms).filter(Number.isFinite);
     out.gct.push(g.length ? Math.round(mean(g)) : null);
+    const cd = rs.map((r) => r.avg_cadence).filter((v) => Number.isFinite(v) && v > 100);
+    out.cad.push(cd.length ? Math.round(mean(cd)) : null);
   }
   const tz = total.reduce((a, c) => a + c, 0);
   out.z12 = tz ? Math.round(((total[0] + total[1]) / tz) * 100) : null;

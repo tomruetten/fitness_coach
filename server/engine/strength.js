@@ -69,7 +69,7 @@ export function strengthAnalysis({ sets, range, ex, date }) {
   const exercises = [...counts.values()].sort((a, b) => b.n - a.n).map(({ id, name }) => ({ id, name }));
   const sel = exercises.find((e) => e.id === ex) || exercises[0] || null;
 
-  const out = { range, sub, labels: list.map((b) => b.label), exercises, ex: sel, weight: [], vol: [], sessions: [], hist: [] };
+  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), exercises, ex: sel, weight: [], vol: [], sessions: [], hist: [] };
   let sessions = 0, vol = 0, nSets = 0;
   for (const b of list) {
     if (b.future) { out.weight.push(null); out.vol.push(null); out.sessions.push(null); continue; }
