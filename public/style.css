@@ -142,10 +142,9 @@ nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width
 
 /* ===== Liquid Glass ===== */
 :root{--glass:rgba(255,255,255,.58);--glass-strong:rgba(255,255,255,.74);--glass-line:rgba(255,255,255,.78);--glass-shadow:0 10px 30px rgba(40,50,90,.10),0 1px 2px rgba(40,50,90,.06);--tint:rgba(118,118,128,.13)}
-html{background:#EEF0F6}
-body{background:linear-gradient(180deg,#F7F1EC 0%,#EEF0F7 55%,#EAEFF9 100%);min-height:100vh}
-body::before{content:"";position:fixed;inset:-20% -20% auto -20%;height:70vh;z-index:-1;pointer-events:none;background:radial-gradient(40% 50% at 18% 30%,rgba(255,138,76,.30),transparent 70%),radial-gradient(38% 46% at 82% 18%,rgba(175,82,222,.20),transparent 70%),radial-gradient(45% 50% at 60% 70%,rgba(10,132,255,.16),transparent 70%)}
-body::after{content:"";position:fixed;inset:auto -20% -15% -20%;height:50vh;z-index:-1;pointer-events:none;background:radial-gradient(45% 50% at 25% 60%,rgba(10,132,255,.16),transparent 70%),radial-gradient(40% 45% at 80% 70%,rgba(255,138,76,.18),transparent 70%)}
+html{background:#F2F2F7}
+body{background:transparent;min-height:100vh}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(60% 40% at 15% 0%,rgba(255,138,76,.16),transparent 70%),radial-gradient(55% 38% at 90% 5%,rgba(175,82,222,.10),transparent 70%),radial-gradient(60% 40% at 80% 100%,rgba(10,132,255,.12),transparent 70%),#F2F2F7}
 .card,.ccard,.kpi,.pill,.day,.prog3,.info,.addbtn,.chips button,.sheet{background:var(--glass);-webkit-backdrop-filter:blur(26px) saturate(180%);backdrop-filter:blur(26px) saturate(180%);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow),inset 0 1px 0 rgba(255,255,255,.9)}
 .card,.ccard,.ex{border-radius:26px}.hero{border-radius:30px}
 .kpi,.day,.info,.addbtn{border-radius:22px}
@@ -193,3 +192,9 @@ nav button svg{width:24px;height:24px}
 .sheet .txt{height:50px;border-radius:14px;padding:0 16px;font-size:16px}
 .sheet .txt[hidden]{display:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.ccard,.kpi,.pill,.day,.prog3,.info,.addbtn,.chips button,.sheet,nav#tabs,.bar-fixed{background:rgba(255,255,255,.92)}}
+
+.avgl{font-style:normal;font-size:13px;color:var(--mute);margin-left:6px}
+.statusbox{display:flex;flex-direction:column;gap:8px}.statusbox .sl{font-size:13px;font-weight:600;color:var(--mute);padding:0 4px}
+.seg button.ok.on{color:#1f8a43}.seg button.no.on{color:#8E8E93}
+.ring{border:0;background:none;padding:2px;margin:-2px;display:flex;align-items:center;justify-content:center;flex:none}
+.avgl{letter-spacing:0;font-weight:500}

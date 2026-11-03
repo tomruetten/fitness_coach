@@ -46,7 +46,7 @@ export function chartCard(o) {
   const topPct = (v) => { const t = (v - o.min) / (o.max - o.min); return (o.invert ? t : 1 - t) * 100; };
   const data = o.type === 'stack' ? o.vals.some(Boolean) : o.vals.some((v) => has(v) && (o.type === 'line' || v > 0));
 
-  let html = `<section class="ccard"><div class="chead"><div><h2>${esc(o.title)}</h2><div class="big">${esc(o.big ?? '–')}<span>${o.unit ? ' ' + esc(o.unit) : ''}</span></div></div><span class="note">${esc(o.note || '')}</span></div>`;
+  let html = `<section class="ccard"><div class="chead"><div><h2>${esc(o.title)}</h2><div class="big">${esc(o.big ?? '–')}<span>${o.unit ? ' ' + esc(o.unit) : ''}</span>${o.avgLabel ? `<em class="avgl">${esc(o.avgLabel)}</em>` : ''}</div></div>${o.note ? `<span class="note">${esc(o.note)}</span>` : ''}</div>`;
 
   if (!data) {
     html += `<div class="empty">Noch keine Daten in diesem Zeitraum.</div>`;

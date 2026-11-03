@@ -145,3 +145,20 @@ test('Übungskatalog, freies Training und Notizen', async () => {
   assert.equal(cat3.find((e) => e.id === 'x_beinpresse').memo, '');
   t.close();
 });
+
+test('Status erledigt/ausgefallen und Durchschnitte in den Trends', async () => {
+  const t = await boot();
+  const w = await (await t.call('/api/week')).json();
+  const day = w.week[0].date;
+  const future = w.week[6].date;
+  assert.equal((await t.call('/api/day/status', { body: { date: day, status: 'bogus' } })).status, 400);
+  if (future > w.today) assert.equal((await t.call('/api/day/status', { body: { date: future, status: 'done' } })).status, 400);
+  assert.equal((await t.call('/api/day/status', { body: { date: w.today, status: 'done' } })).status, 200);
+  assert.equal((await (await t.call('/api/week')).json()).week.find((p) => p.date === w.today).status, 'done');
+  assert.equal((await t.call('/api/day/status', { body: { date: w.today, status: null } })).status, 200);
+  assert.equal((await (await t.call('/api/week')).json()).week.find((p) => p.date === w.today).status, null);
+  const tr = await (await t.call('/api/trends?range=month')).json();
+  assert.ok(tr.avg && 'hrv' in tr.avg && 'sleep' in tr.avg);
+  assert.equal(tr.sleep.length, tr.labels.length);
+  t.close();
+});

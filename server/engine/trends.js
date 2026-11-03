@@ -20,7 +20,7 @@ export function trends(ctx, range = 'month') {
   const isRun = (a) => a.sport === 'running' && a.distance_m > 1500;
 
   const minRunsForPace = range === 'week' ? 1 : 2;
-  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [] };
+  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [], sleep: [], bb: [], stress: [] };
   // Normalbereich: Mittel ± 1 Standardabweichung der Tageswerte der letzten 60 Tage
   const band = (key) => {
     const v = days.filter((d) => d.date > addDays(date, -60) && d.date <= date).map((d) => d[key]).filter(Number.isFinite);
@@ -34,7 +34,7 @@ export function trends(ctx, range = 'month') {
   let runs = 0, km = 0, time = 0;
 
   for (const b of list) {
-    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); out.cad.push(null); continue; }
+    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); out.cad.push(null); out.sleep.push(null); out.bb.push(null); out.stress.push(null); continue; }
     const inB = activities.filter((a) => a.local_date >= b.from && a.local_date <= b.to);
     const rs = inB.filter(isRun);
     const bKm = rs.reduce((a, r) => a + r.distance_m, 0) / 1000;
@@ -54,6 +54,12 @@ export function trends(ctx, range = 'month') {
     const rhr = ds.map((d) => d.resting_hr).filter(Number.isFinite);
     out.hrv.push(hrv.length ? Math.round(mean(hrv)) : null);
     out.rhr.push(rhr.length ? Math.round(mean(rhr)) : null);
+    const sl = ds.map((d) => d.sleep_s).filter((v) => Number.isFinite(v) && v > 0);
+    const bb = ds.map((d) => d.body_battery_max).filter(Number.isFinite);
+    const sr = ds.map((d) => d.stress_avg).filter((v) => Number.isFinite(v) && v >= 0);
+    out.sleep.push(sl.length ? r1(mean(sl) / 3600) : null);
+    out.bb.push(bb.length ? Math.round(mean(bb)) : null);
+    out.stress.push(sr.length ? Math.round(mean(sr)) : null);
 
     const end = b.to > date ? date : b.to;
     const ac = acuteChronic(activities.filter((a) => a.local_date <= end), end);
@@ -64,6 +70,20 @@ export function trends(ctx, range = 'month') {
     const cd = rs.map((r) => r.avg_cadence).filter((v) => Number.isFinite(v) && v > 100);
     out.cad.push(cd.length ? Math.round(mean(cd)) : null);
   }
+  // Durchschnitte über den gewählten Zeitraum (bis heute)
+  const from = list[0].from;
+  const wd = days.filter((d) => d.date >= from && d.date <= date);
+  const wa = activities.filter((a) => a.local_date >= from && a.local_date <= date && isRun(a));
+  const avgOf = (xs, f = (v) => Math.round(v)) => { const v = xs.filter(Number.isFinite); return v.length ? f(mean(v)) : null; };
+  const allPaces = wa.flatMap((r) => (r.km_splits || []).filter((s) => s.hr >= b2 && s.hr < b3 && s.pace_s > 240 && s.pace_s < 480).map((s) => s.pace_s));
+  out.avg = {
+    hrv: avgOf(wd.map((d) => d.hrv_avg)), rhr: avgOf(wd.map((d) => d.resting_hr)),
+    sleep: avgOf(wd.map((d) => (d.sleep_s > 0 ? d.sleep_s : NaN)), (v) => r1(v / 3600)),
+    bb: avgOf(wd.map((d) => d.body_battery_max)), stress: avgOf(wd.map((d) => d.stress_avg)),
+    z2: allPaces.length >= 3 ? Math.round(median(allPaces)) : null,
+    gct: avgOf(wa.map((r) => r.gct_ms)), cad: avgOf(wa.map((r) => (r.avg_cadence > 100 ? r.avg_cadence : NaN))),
+    acwr: avgOf(out.acwr, (v) => Math.round(v * 100) / 100),
+  };
   const tz = total.reduce((a, c) => a + c, 0);
   out.z12 = tz ? Math.round(((total[0] + total[1]) / tz) * 100) : null;
   out.kpis = { runs, km: r1(km), time_s: Math.round(time) };

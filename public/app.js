@@ -1,4 +1,4 @@
-import { $, $$, esc, pace, hm, dmy, dec, SPORT, toast, api, store, swr } from './util.js';
+import { $, $$, esc, pace, hm, dmy, dec, SPORT, toast, api, store, swr, icon } from './util.js';
 import { viewAnalysis } from './analysis.js';
 import { heuteKraftCard, viewPrep, viewLog } from './strength.js';
 
@@ -85,12 +85,27 @@ function infoCard(d) {
   return `<div class="card info"><div class="ico">${'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>'}</div><div><b>${adjusted ? 'Heute angepasst' : 'Heute nicht angepasst'}</b><p>${text}</p></div></div>`;
 }
 
+const STATUS = [[null, 'Offen'], ['done', 'Erledigt'], ['skipped', 'Ausgefallen']];
+function statusControl(date, status, label = 'Status') {
+  return `<div class="statusbox"><span class="sl">${label}</span><div class="seg" role="group" aria-label="${label}">${STATUS.map(([k, t]) => `<button type="button" data-status="${k ?? ''}" aria-pressed="${(status || '') === (k ?? '')}" class="${(status || '') === (k ?? '') ? 'on' : ''}${k === 'done' ? ' ok' : k === 'skipped' ? ' no' : ''}">${t}</button>`).join('')}</div></div>`;
+}
+async function setStatus(date, status) {
+  await api('/day/status', { date, status: status || null });
+  ['c_today', 'c_week'].forEach((k) => store.del(k));
+}
+function bindStatus(root, date, after) {
+  $$('[data-status]', root).forEach((b) => b.addEventListener('click', async () => {
+    try { await setStatus(date, b.dataset.status); toast(b.dataset.status === 'done' ? 'Als erledigt markiert' : b.dataset.status === 'skipped' ? 'Als ausgefallen markiert' : 'Status zurückgesetzt'); after(); } catch (e) { toast(e.message); }
+  }));
+}
+
 function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d);
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard(d) : otherCard(d);
   html += infoCard(d);
+  if (p.kind !== 'rest') html += statusControl(d.date, d.status);
   if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   if (d.thresholdSuggestion) {
     const s = d.thresholdSuggestion;
@@ -101,6 +116,7 @@ function drawToday(d, stale) {
   $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
   $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); render(); } catch (e) { toast(e.message); } });
   $('#painBtn')?.addEventListener('click', () => openPain(d.date));
+  bindStatus(app, d.date, () => render());
 }
 
 function openPain(date) {
@@ -125,17 +141,43 @@ function openPain(date) {
   };
 }
 
+// ---- Tagesansicht (Läufe, Spinning) -------------------------------------------
+async function viewDay(app, { date, nav }) {
+  let data = null;
+  const draw = (d) => {
+    data = d;
+    const p = d.week.find((x) => x.date === date) || d.week[0];
+    const g = group(p.kind), past = date <= d.today;
+    const fake = { plan: p, thresholds: { lthr: d.lthr } };
+    const wd = new Date(date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+    app.innerHTML = `<button type="button" class="back" data-act="back">${icon.back}Woche</button>
+      <div class="head"><div class="eyebrow">${wd}${date === d.today ? ' · heute' : ''}</div><h1>${esc(nice(p.label).replace(/ \(.*/, '').split(' · ')[0])}</h1></div>
+      ${g === 'run' ? runCard(fake) : otherCard(fake)}
+      ${!past ? '<div class="card info"><div class="ico">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg></div><div><b>Vorläufig</b><p>Das ist der geplante Ablauf. Am Tag selbst passt die App die Einheit an deine Erholung an, etwa bei schlechtem Schlaf oder hoher Belastung.</p></div></div>' : ''}
+      ${(p.why || []).length ? infoCard({ plan: p, readiness: { signals: [] } }) : ''}
+      ${past ? statusControl(date, p.status, 'Wurde die Einheit gemacht?') : ''}`;
+    $('[data-act=back]', app).onclick = () => nav('week');
+    bindStatus(app, date, () => { store.del('c_week'); viewDay(app, { date, nav }); });
+  };
+  const cached = store.get('c_week');
+  if (cached) draw(cached);
+  else app.innerHTML = '<p class="muted center-text">Lädt …</p>';
+  try { const d = await api('/week'); store.set('c_week', d); if (JSON.stringify(d) !== JSON.stringify(cached)) draw(d); } catch (e) { if (!cached) throw e; }
+}
+
 // ---- Woche -----------------------------------------------------------------
 const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const dm = (iso) => `${Number(iso.slice(8, 10))}. ${MON[Number(iso.slice(5, 7)) - 1]}`;
 const check = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34C759" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="erledigt" role="img"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>';
 let weekEdit = null; // {order:[Plan], sel:null|index} solange die Woche bearbeitet wird
 const GRIP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg>';
+const isDone = (p) => p.status === 'done' || (p.status !== 'skipped' && p.done?.length > 0);
+const RING = { open: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>', skipped: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>' };
 function drawWeek(d, stale) {
   const w = weekEdit ? weekEdit.order : d.week; // Tage (Datum) bleiben, Einheiten wandern
   const dates = d.week.map((p) => p.date);
   const c = { run: [0, 0], strength: [0, 0], spin: [0, 0] };
-  d.week.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (p.done?.length) c[g][0]++; } });
+  d.week.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (isDone(p)) c[g][0]++; } });
   const b0 = d.week[0]?.block;
   const prog = (l, [a, n], col) => `<div class="pc"><span>${l}</span><b>${a}<small> / ${n}</small></b><div class="pt"><i style="width:${n ? Math.round(a / n * 100) : 0}%;background:${col}"></i></div></div>`;
   const locked = (p, i) => p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
@@ -146,11 +188,19 @@ function drawWeek(d, stale) {
     const g = group(p.kind), t = p.targets || {}, today = dates[i] === d.today, rest = g === 'rest', lock = locked(p, i);
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
     const moved = weekEdit ? p.date !== dates[i] || p.moved : p.moved;
-    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', moved ? 'verschoben' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
-    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${g === 'strength' && !weekEdit ? ` data-kind="${p.kind}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : d.week[i].done?.length ? check : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
+    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>
     ${weekEdit && (anyMoved || weekEdit.order.some((p, i) => p.date !== dates[i])) ? '<button type="button" class="link" id="wreset">Auf Standardwoche zurücksetzen</button>' : ''}`;
-  $$('.day[data-kind]', app).forEach((r) => r.addEventListener('click', () => go('prep', { kind: r.dataset.kind })));
+  $$('.day[data-open]', app).forEach((r) => r.addEventListener('click', (ev) => {
+    if (ev.target.closest('.ring')) return;
+    if (r.dataset.kind) go('prep', { kind: r.dataset.kind }); else go('day', { date: r.dataset.open });
+  }));
+  $$('.ring', app).forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const i = Number(b.dataset.ring);
+    try { await setStatus(dates[i], isDone(d.week[i]) ? null : 'done'); render(); } catch (e) { toast(e.message); }
+  }));
   $('#wedit').onclick = async () => {
     if (!weekEdit) { weekEdit = { order: [...d.week], sel: null }; return drawWeek(d, stale); }
     const days = Object.fromEntries(dates.map((dt, i) => [dt, weekEdit.order[i].kind]));
@@ -245,7 +295,7 @@ async function autoSync(force = false) {
 const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek] };
 let renderId = 0;
 function go(view, o = {}) {
-  if (view === 'today') { sub = null; tab = 'today'; } else sub = { view, ...o };
+  if (['today', 'week', 'analysis', 'more'].includes(view)) { sub = null; tab = view; } else sub = { view, ...o };
   render();
 }
 async function render() {
@@ -258,7 +308,7 @@ async function render() {
   app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
   try {
-    if (sub) { const f = sub.view === 'log' ? viewLog : viewPrep; await f(app, { ...sub, nav: go }); return; }
+    if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
     if (tab === 'more') { await viewMore(); return; }
     if (tab === 'analysis') { await viewAnalysis(app, isCurrent); return; }
     const [key, path, draw] = views[tab];

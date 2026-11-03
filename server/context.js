@@ -22,15 +22,17 @@ export async function loadContext(store, { date } = {}) {
   const settings = await loadSettings(store);
   const today = todayIn(settings.timezone);
   const d = date || today;
-  const [activities, days, oldLog, sets, pain, overrides] = await Promise.all([
+  const [activities, days, oldLog, sets, pain, overrides, status] = await Promise.all([
     store.activitiesSince(addDays(d, -130)),
     store.daysSince(addDays(d, -75)),
     store.strengthSince(addDays(d, -90)),
     store.setsSince(addDays(d, -120)),
     store.painSince(addDays(d, -30)),
     store.getSetting('day_overrides'),
+    store.getSetting('day_status'),
   ]);
   settings._ov = overrides || {};
+  settings._status = status || {};
   const strengthLog = [...oldLog, ...legacyLog(sets.filter((x) => x.date >= addDays(d, -90)))];
   return { date: d, today, settings, activities, days, strengthLog, sets, pain };
 }

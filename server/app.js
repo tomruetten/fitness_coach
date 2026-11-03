@@ -114,7 +114,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
-    res.json({ date: ctx.date, session, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -123,13 +123,27 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const plans = planWeek({ ...ctx, today: ctx.today });
     const dates = weekDates(ctx.date);
     const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, load: a.load })) }));
-    res.json({ today: ctx.today, week });
+    res.json({ today: ctx.today, lthr: ctx.settings.lthr, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
   }));
 
   app.get('/api/activities', wrap(async (req, res) => {
     const ctx = await loadContext(store);
     const n = Math.min(60, Number(req.query.limit) || 25);
     res.json({ activities: [...ctx.activities].reverse().slice(0, n) });
+  }));
+
+  // Einheit manuell als erledigt oder ausgefallen kennzeichnen (auch nachträglich).
+  app.post('/api/day/status', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const today = todayIn(settings.timezone);
+    const { date, status } = req.body || {};
+    if (!isDate(date) || date > today || date < addDays(today, -120)) return res.status(400).json({ error: 'Datum nicht möglich' });
+    if (status !== null && status !== 'done' && status !== 'skipped') return res.status(400).json({ error: 'Status unbekannt' });
+    const all = (await store.getSetting('day_status')) || {};
+    if (status) all[date] = status; else delete all[date];
+    for (const k of Object.keys(all)) if (k < addDays(today, -150)) delete all[k];
+    await store.setSetting('day_status', all);
+    res.json({ ok: true });
   }));
 
   // Woche umplanen: Einheiten zwischen Tagen der laufenden Woche tauschen (Datum -> Einheit).

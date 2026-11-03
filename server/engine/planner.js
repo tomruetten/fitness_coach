@@ -54,6 +54,9 @@ export function missedRuns(settings, activities, date) {
     if (d < firstAct) break;
     const kind = slotOf(settings, d).kind;
     if (kind !== 'run_quality' && kind !== 'run_long') continue;
+    const manual = settings._status?.[d];
+    if (manual === 'done') continue;
+    if (manual === 'skipped') { missed.push(d); continue; }
     if (!runDates.has(d) && !runDates.has(addDays(d, 1)) && !runDates.has(addDays(d, -1))) missed.push(d);
   }
   return missed.sort();
