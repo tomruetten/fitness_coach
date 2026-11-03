@@ -348,9 +348,10 @@ async function render() {
   clearInterval(viewLog.tm);
   $$('#tabs button').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   $('#tabs').hidden = !!sub;
+  if (!sub) placePill(TABS.indexOf(tab));
   app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
-  if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) app.animate([{ transform: `translateX(${dir * 26}px)`, opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) app.animate([{ transform: `translateX(${dir * 38}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
   dir = 0;
   try {
     if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
@@ -374,7 +375,24 @@ async function start() {
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
-// ---- Wischgesten: seitlich zwischen Tabs wechseln, vom linken Rand zurück ------------------------
+// ---- Navigationsblase unten: folgt dem aktiven Tab (und dem Finger beim Wischen) -----------------
+const pill = document.createElement('i');
+pill.className = 'pill';
+$('#tabs').prepend(pill);
+let pillShown = false;
+function placePill(pos, animate = true) {
+  const nav = $('#tabs'); if (nav.hidden) { pillShown = false; return; }
+  const bs = $$('#tabs button'), lo = Math.floor(pos), hi = Math.min(bs.length - 1, Math.ceil(pos)), f = pos - lo;
+  const b0 = bs[Math.max(0, lo)], b1 = bs[hi];
+  const x = b0.offsetLeft + (b1.offsetLeft - b0.offsetLeft) * f;
+  pill.style.width = b0.offsetWidth + 'px'; pill.style.height = b0.offsetHeight + 'px'; pill.style.top = b0.offsetTop + 'px';
+  pill.style.transition = animate && pillShown ? '' : 'none';
+  pill.style.transform = `translateX(${x}px)`;
+  pillShown = true;
+}
+window.addEventListener('resize', () => placePill(TABS.indexOf(tab), false));
+
+// ---- Wischgesten: Seite folgt dem Finger; seitlich zwischen Tabs wechseln, vom linken Rand zurück ------
 (() => {
   let s = null;
   const blocked = (el) => {
@@ -385,22 +403,58 @@ document.addEventListener('visibilitychange', () => { if (document.hidden || $('
     }
     return false;
   };
+  const setApp = (tx, op, ms) => { app.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.8,.2,1), opacity ${ms}ms` : 'none'; app.style.transform = tx ? `translateX(${tx}px)` : ''; app.style.opacity = op == null ? '' : String(op); };
+  const clear = () => { app.style.transition = 'none'; app.style.transform = ''; app.style.opacity = ''; };
+  const W = () => window.innerWidth;
   document.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) { s = null; return; }
     const t0 = e.touches[0];
-    s = { x: t0.clientX, y: t0.clientY, t: Date.now(), el: e.target };
+    s = { x: t0.clientX, y: t0.clientY, t: Date.now(), el: e.target, mode: null };
   }, { passive: true });
-  document.addEventListener('touchend', (e) => {
+  document.addEventListener('touchmove', (e) => {
+    if (!s || s.mode === 'none') return;
+    const t1 = e.touches[0], dx = t1.clientX - s.x, dy = t1.clientY - s.y;
+    if (!s.mode) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      s.mode = 'none';
+      if (Math.abs(dx) > Math.abs(dy) * 1.2 && !$('.sheet-wrap.open')) {
+        if (s.x <= 28 && dx > 0 && (sub || hist.length)) s.mode = 'edge';
+        else if (!sub && !$('#tabs').hidden && !weekEdit && !blocked(s.el)) s.mode = 'tab';
+      }
+      if (s.mode === 'none') return;
+    }
+    if (e.cancelable) e.preventDefault();
+    if (s.mode === 'edge') {
+      const tx = Math.max(0, dx);
+      setApp(tx * 0.85, 1 - Math.min(0.6, tx / W()));
+    } else {
+      const i = TABS.indexOf(tab), n = i + (dx < 0 ? 1 : -1), valid = n >= 0 && n < TABS.length;
+      const k = valid ? 0.55 : 0.16;
+      setApp(dx * k, 1 - Math.min(0.55, Math.abs(dx) / W()));
+      placePill(Math.min(TABS.length - 1, Math.max(0, i - (dx / W()) * (valid ? 1.15 : 0.25))), false);
+    }
+  }, { passive: false });
+  const finish = (e, cancelled) => {
     if (!s) return;
-    const t1 = e.changedTouches[0], dx = t1.clientX - s.x, dy = t1.clientY - s.y, dt = Date.now() - s.t;
     const st = s; s = null;
-    if (dt > 700 || Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
-    if ($('.sheet-wrap.open')) return;
-    if (st.x <= 28 && dx > 0) { go('back'); return; }
-    if (sub || $('#tabs').hidden || weekEdit || blocked(st.el)) return;
-    const i = TABS.indexOf(tab), n = i + (dx < 0 ? 1 : -1);
-    if (n >= 0 && n < TABS.length) go(TABS[n]);
-  }, { passive: true });
+    if (!st.mode || st.mode === 'none') return;
+    const t1 = e.changedTouches[0], dx = t1.clientX - st.x, vel = dx / Math.max(1, Date.now() - st.t);
+    const i = TABS.indexOf(tab);
+    if (st.mode === 'edge') {
+      if (!cancelled && (dx > W() * 0.3 || vel > 0.5) && dx > 40) {
+        setApp(W() * 0.35, 0, 150);
+        setTimeout(() => { clear(); go('back'); }, 150);
+      } else { setApp(0, 1, 260); }
+      return;
+    }
+    const n = i + (dx < 0 ? 1 : -1);
+    if (!cancelled && n >= 0 && n < TABS.length && (Math.abs(dx) > W() * 0.25 || Math.abs(vel) > 0.45) && Math.abs(dx) > 40) {
+      setApp(dx < 0 ? -50 : 50, 0, 140);
+      setTimeout(() => { clear(); go(TABS[n]); }, 140);
+    } else { setApp(0, 1, 260); placePill(i, true); }
+  };
+  document.addEventListener('touchend', (e) => finish(e, false), { passive: true });
+  document.addEventListener('touchcancel', (e) => finish(e, true), { passive: true });
 })();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 start();

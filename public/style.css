@@ -169,7 +169,7 @@ body::before{content:"";position:fixed;left:0;right:0;bottom:0;height:55vh;z-ind
 /* Schwebende Tab-Leiste */
 nav#tabs{left:16px;right:16px;bottom:calc(10px + env(safe-area-inset-bottom));max-width:440px;margin:0 auto;height:66px;padding:6px;gap:2px;border-radius:34px;border:1px solid var(--glass-line);background:rgba(255,255,255,.52);-webkit-backdrop-filter:blur(30px) saturate(200%);backdrop-filter:blur(30px) saturate(200%);box-shadow:0 14px 36px rgba(40,50,90,.18),0 2px 6px rgba(40,50,90,.08),inset 0 1px 0 rgba(255,255,255,.95)}
 nav#tabs button{border-radius:28px;gap:2px;justify-content:center;transition:background .2s,color .2s}
-nav#tabs button.on{background:rgba(255,255,255,.78);box-shadow:0 2px 10px rgba(40,50,90,.12),inset 0 1px 0 #fff}
+nav#tabs button.on{background:none}
 nav button svg{width:24px;height:24px}
 #app{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
 /* Fußleisten (Vorlage, Kraft) schweben ebenfalls */
@@ -218,3 +218,7 @@ nav button svg{width:24px;height:24px}
 .fitcard .kv{gap:22px;margin-top:2px}
 
 html,body{overscroll-behavior-x:none}#app{will-change:auto}
+
+nav#tabs{overflow:visible}nav#tabs button{position:relative;z-index:1}
+nav#tabs .pill{position:absolute;left:0;top:6px;border-radius:28px;background:rgba(255,255,255,.82);box-shadow:0 2px 10px rgba(40,50,90,.14),inset 0 1px 0 #fff;pointer-events:none;z-index:0;transition:transform .5s cubic-bezier(.34,1.35,.5,1),width .3s ease;will-change:transform}
+nav#tabs button svg{transition:transform .35s cubic-bezier(.34,1.5,.5,1)}nav#tabs button.on svg{transform:scale(1.08)}
