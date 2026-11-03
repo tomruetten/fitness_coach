@@ -10,12 +10,12 @@ function configure() {
 
 /** Sendet an alle Abos; gibt die noch gültigen zurück. */
 export async function sendAll(subs, payload) {
-  if (!pushReady()) return { subs, sent: 0 };
-  configure();
-  const keep = []; let sent = 0;
+  if (!pushReady()) return { subs, sent: 0, errors: ['Schlüssel fehlen'] };
+  try { configure(); } catch (e) { return { subs, sent: 0, errors: [`Schlüssel ungültig: ${e.message}`] }; }
+  const keep = []; const errors = []; let sent = 0;
   for (const s of subs) {
     try { await webpush.sendNotification(s, JSON.stringify(payload), { TTL: 6 * 3600 }); keep.push(s); sent++; }
-    catch (e) { if (e.statusCode !== 404 && e.statusCode !== 410) keep.push(s); }
+    catch (e) { errors.push(e.statusCode ? `Push-Dienst antwortet ${e.statusCode}` : e.message); if (e.statusCode !== 404 && e.statusCode !== 410) keep.push(s); }
   }
-  return { subs: keep, sent };
+  return { subs: keep, sent, errors };
 }

@@ -381,7 +381,7 @@ async function setupPush(first) {
   const cur = await reg.pushManager.getSubscription();
   const sw = (on, attr) => `<button type="button" class="sw${on ? ' on' : ''}" role="switch" aria-checked="${on}" ${attr}><i></i></button>`;
   box.innerHTML = `<div class="nrow main"><div><b>Mitteilungen auf diesem Gerät</b><small>${cur ? 'Eingeschaltet' : 'Ausgeschaltet. Zum Empfangen hier einschalten.'}</small></div>${sw(!!cur, 'data-dev')}</div>
-    <div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
+    ${cur ? '<button class="sec" id="pushTest">Testmitteilung senden</button>' : ''}<div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
   $('[data-dev]', box).onclick = async () => {
     try {
       const sub = await reg.pushManager.getSubscription();
@@ -394,6 +394,11 @@ async function setupPush(first) {
       setupPush(pu);
     } catch (e) { toast(e.message); }
   };
+  $('#pushTest', box)?.addEventListener('click', async (ev) => {
+    ev.target.disabled = true;
+    try { await api('/push/test', {}); toast('Gesendet, sie sollte gleich ankommen'); } catch (e) { toast(e.message); }
+    ev.target.disabled = false;
+  });
   $$('[data-nid]', box).forEach((b) => b.addEventListener('click', async () => {
     const on = !b.classList.contains('on');
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
