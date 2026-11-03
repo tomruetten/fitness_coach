@@ -233,16 +233,18 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const from = addDays(ctx.today, -31);
     const list = ctx.activities.filter((a) => a.local_date >= from && a.local_date <= ctx.today && (a.duration_s || 0) > 300)
       .sort((x, y) => (y.start_time || '').localeCompare(x.start_time || ''))
-      .map((a) => ({ id: a.id, date: a.local_date, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, te_aerobic: a.te_aerobic, extra: groupOfKind(planKind(ctx, a.local_date)) !== a.sport || (a.sport === 'running' && !isRunAct(a)) }));
+      .map((a) => ({ id: a.id, date: a.local_date, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, te_aerobic: a.te_aerobic, extra: a.local_date >= mondayOf(ctx.today) && (groupOfKind(planKind(ctx, a.local_date)) !== a.sport || (a.sport === 'running' && !isRunAct(a))) }));
     res.json({ today: ctx.today, activities: list });
   }));
   app.get('/api/activity/:id', wrap(async (req, res) => {
     const ctx0 = await loadContext(store);
     const a = ctx0.activities.find((x) => String(x.id) === String(req.params.id));
     if (!a || a.local_date < addDays(ctx0.today, -35)) return res.status(404).json({ error: 'Aktivität nicht gefunden' });
-    const plan = planWeek({ ...ctx0, date: a.local_date, today: ctx0.today }).find((p) => p.date === a.local_date);
+    // Vor der laufenden Woche gab es noch keinen Plan: nur darstellen, nicht bewerten.
+    const tracked = a.local_date >= mondayOf(ctx0.today);
+    const plan = tracked ? planWeek({ ...ctx0, date: a.local_date, today: ctx0.today }).find((p) => p.date === a.local_date) : null;
     const rd = a.local_date === ctx0.today ? readiness(ctx0) : null;
-    const evaluation = evaluateSession({ plan, activities: ctx0.activities, rd, date: a.local_date, act: a });
+    const evaluation = tracked ? evaluateSession({ plan, activities: ctx0.activities, rd, date: a.local_date, act: a }) : null;
     const { km_splits, best, ...rest } = a;
     res.json({ activity: { ...rest, splits: a.sport === 'running' ? km_splits : undefined, segments: a.sport === 'running' ? best?.segments : undefined }, plan: evaluation?.free ? null : plan, planned_label: plan?.label || null, evaluation, lthr: ctx0.settings.lthr });
   }));
