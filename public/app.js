@@ -262,36 +262,42 @@ function drawWeek(d, stale) {
   }));
 }
 
-async function viewMore() {
-  // Inhalt unverändert, nur neues Aussehen
-
-  const [s, st] = await Promise.all([api('/settings'), api('/auth/state')]);
-  const g = s.goal || {};
-  app.innerHTML = `<h1>Mehr</h1><h2>Ziel</h2><div class="card">
-    <div class="row"><span>Halbmarathon-Zeit</span><input class="txt" id="gt" style="width:110px;margin:0" value="${Math.floor(g.time_s / 3600)}:${String(Math.floor(g.time_s % 3600 / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}"></div>
-    <div class="row"><span>Wettkampfdatum</span><input class="txt" id="gd" type="date" style="width:160px;margin:0" value="${g.date || ''}"></div>
-    <div class="row"><span>Schwellenpuls</span><input class="txt" id="lthr" type="number" style="width:90px;margin:0" value="${s.lthr}"></div>
-    <div class="row"><span>Maximalpuls</span><input class="txt" id="mhr" type="number" style="width:90px;margin:0" value="${s.max_hr}"></div>
-    <div class="row"><span>Schwellentempo (Startwert)</span><input class="txt" id="ltp" style="width:90px;margin:0" value="${pace(s.lt_pace_s)}"></div>
-    <div class="row"><span>Lockeres Tempo</span><input class="txt" id="ezp" style="width:90px;margin:0" value="${pace(s.easy_pace_s)}"></div>
-    <button class="pri" id="saveS">Speichern</button></div>
-  <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
-  <h2>Passkeys</h2><div class="card">${(st.passkeys || []).map((k) => `<div class="row"><span>${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10))}</span></div>`).join('')}<button class="sec" id="addPk">Dieses Gerät hinzufügen</button></div>
-  <button class="sec" id="out">Abmelden</button>`;
-  const parseT = (v) => { const p = v.split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
-  $('#saveS').onclick = async () => {
-    try { await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT($('#ltp').value), easy_pace_s: parseT($('#ezp').value), goal: { time_s: parseT($('#gt').value), date: $('#gd').value || null } }); toast('Gespeichert'); } catch (e) { toast(e.message); }
-  };
-  const doSync = async (from) => {
-    $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;
-    try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.health) lastHealth = r.health; if (r.done) break; } const h = lastHealth; $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.` + (h ? ` Tageswerte: ${h.rows} Tage (HRV ${h.hrv}, Ruhepuls ${h.rhr}, Schlaf ${h.sleep})${h.errors?.length ? '. Fehler: ' + h.errors.join('; ') : ''}` : ''); }
-    catch (e) { $('#syncInfo').textContent = 'Fehler: ' + e.message; }
-    $('#sync').disabled = $('#hist').disabled = false;
-  };
-  $('#sync').onclick = () => doSync();
-  $('#hist').onclick = () => doSync(new Date().getFullYear() + '-01-01');
-  $('#addPk').onclick = async () => { try { await registerPasskey('', navigator.platform || 'Gerät'); toast('Passkey angelegt'); render(); } catch (e) { toast(e.name === 'NotAllowedError' ? 'Abgebrochen' : e.message); } };
-  $('#out').onclick = async () => { await api('/auth/logout', {}); start(); };
+async function viewMore(isCurrent = () => true) {
+  const cached = store.get('c_more');
+  const load = () => Promise.all([api('/settings'), api('/auth/state')]).then(([s, st]) => ({ s, st }));
+  if (cached) draw(cached);
+  else app.innerHTML = '<div class="head"><h1>Profil</h1></div><p class="muted center-text">Lädt …</p>';
+  const fresh = await load();
+  store.set('c_more', fresh);
+  if (isCurrent() && JSON.stringify(fresh) !== JSON.stringify(cached) && !app.contains(document.activeElement && document.activeElement.matches('input') ? document.activeElement : null)) draw(fresh);
+  function draw({ s, st }) {
+    const g = s.goal || {};
+    app.innerHTML = `<div class="head"><h1>Profil</h1></div><h2>Ziel</h2><div class="card">
+      <div class="row"><span>Halbmarathon-Zeit</span><input class="txt" id="gt" style="width:110px;margin:0" value="${Math.floor(g.time_s / 3600)}:${String(Math.floor(g.time_s % 3600 / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}"></div>
+      <div class="row"><span>Wettkampfdatum</span><input class="txt" id="gd" type="date" style="width:160px;margin:0" value="${g.date || ''}"></div>
+      <div class="row"><span>Schwellenpuls</span><input class="txt" id="lthr" type="number" style="width:90px;margin:0" value="${s.lthr}"></div>
+      <div class="row"><span>Maximalpuls</span><input class="txt" id="mhr" type="number" style="width:90px;margin:0" value="${s.max_hr}"></div>
+      <div class="row"><span>Schwellentempo (Startwert)</span><input class="txt" id="ltp" style="width:90px;margin:0" value="${pace(s.lt_pace_s)}"></div>
+      <div class="row"><span>Lockeres Tempo</span><input class="txt" id="ezp" style="width:90px;margin:0" value="${pace(s.easy_pace_s)}"></div>
+      <button class="pri" id="saveS">Speichern</button></div>
+    <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
+    <h2>Passkeys</h2><div class="card">${(st.passkeys || []).map((k) => `<div class="row"><span>${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10))}</span></div>`).join('')}<button class="sec" id="addPk">Dieses Gerät hinzufügen</button></div>
+    <button class="sec" id="out">Abmelden</button>`;
+    const parseT = (v) => { const p = v.split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
+    $('#saveS').onclick = async () => {
+      try { await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT($('#ltp').value), easy_pace_s: parseT($('#ezp').value), goal: { time_s: parseT($('#gt').value), date: $('#gd').value || null } }); toast('Gespeichert'); store.del('c_more'); } catch (e) { toast(e.message); }
+    };
+    const doSync = async (from) => {
+      $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;
+      try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.health) lastHealth = r.health; if (r.done) break; } const h = lastHealth; $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.` + (h ? ` Tageswerte: ${h.rows} Tage (HRV ${h.hrv}, Ruhepuls ${h.rhr}, Schlaf ${h.sleep})${h.errors?.length ? '. Fehler: ' + h.errors.join('; ') : ''}` : ''); }
+      catch (e) { $('#syncInfo').textContent = 'Fehler: ' + e.message; }
+      $('#sync').disabled = $('#hist').disabled = false;
+    };
+    $('#sync').onclick = () => doSync();
+    $('#hist').onclick = () => doSync(new Date().getFullYear() + '-01-01');
+    $('#addPk').onclick = async () => { try { await registerPasskey('', navigator.platform || 'Gerät'); toast('Passkey angelegt'); store.del('c_more'); render(); } catch (e) { toast(e.name === 'NotAllowedError' ? 'Abgebrochen' : e.message); } };
+    $('#out').onclick = async () => { await api('/auth/logout', {}); start(); };
+  }
 }
 
 
@@ -357,7 +363,7 @@ async function render() {
   dir = 0;
   try {
     if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
-    if (tab === 'more') { await viewMore(); return; }
+    if (tab === 'more') { await viewMore(isCurrent); return; }
     if (tab === 'analysis') { await viewAnalysis(app, isCurrent); return; }
     const [key, path, draw] = views[tab];
     if (!store.get(key)) app.innerHTML = '<p class="muted center-text">Lädt …</p>';
@@ -374,6 +380,7 @@ async function start() {
   if (!st.authed) return showAuth(st);
   sub = null; hist.length = 0; $('#tabs').hidden = false; render(); autoSync();
   api('/week').then((d) => store.set('c_week', d)).catch(() => {});
+  Promise.all([api('/settings'), api('/auth/state')]).then(([s, st]) => store.set('c_more', { s, st })).catch(() => {});
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
@@ -394,7 +401,7 @@ function placePill(pos, animate = true) {
   if (!geo || geo[0].w === 0) measurePill();
   const lo = Math.max(0, Math.floor(pos)), hi = Math.min(geo.length - 1, Math.ceil(pos)), f = pos - Math.floor(pos);
   const x = geo[lo].x + (geo[hi].x - geo[lo].x) * f;
-  pill.style.transition = animate && pillShown ? '' : 'none';
+  if (animate && pillShown) { if (pill.style.transition === 'none') void pill.offsetWidth; pill.style.transition = ''; } else pill.style.transition = 'none';
   pill.style.transform = `translate3d(${x}px,0,0)`;
   pillShown = true;
 }
@@ -458,6 +465,7 @@ window.addEventListener('resize', () => { geo = null; placePill(TABS.indexOf(tab
     const n = i + (dx < 0 ? 1 : -1);
     if (!cancelled && n >= 0 && n < TABS.length && (Math.abs(dx) > W() * 0.25 || Math.abs(vel) > 0.45) && Math.abs(dx) > 40) {
       setApp(dx < 0 ? -50 : 50, 0, 140);
+      placePill(n, true); // Blase gleitet sofort weiter, ohne auf den Seitenwechsel zu warten
       setTimeout(() => go(TABS[n]), 140);
     } else { setApp(0, 1, 260); placePill(i, true); setTimeout(movingOff, 280); }
   };

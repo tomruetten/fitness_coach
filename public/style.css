@@ -226,3 +226,4 @@ nav#tabs button svg{transition:transform .35s cubic-bezier(.34,1.5,.5,1)}nav#tab
 nav#tabs{transform:translateZ(0)}
 /* Während Wisch- und Übergangsanimationen kein Hintergrund-Weichzeichnen auf den vielen Karten (spart auf dem iPhone viel Rechenzeit) */
 html.moving .card,html.moving .ccard,html.moving .kpi,html.moving .pill,html.moving .day,html.moving .prog3,html.moving .info,html.moving .addbtn,html.moving .chips button,html.moving .seg{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(255,255,255,.9)}
+html.moving nav#tabs,html.moving .bar-fixed{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(255,255,255,.82)}
