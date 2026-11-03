@@ -5,7 +5,7 @@ import { getStore } from './db/index.js';
 import { clearSessionCookie, isAuthed, requireAuth, requireJsonHeader, setSessionCookie } from './auth/session.js';
 import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } from './auth/passkeys.js';
 import { loadContext, loadSettings, todayIn } from './context.js';
-import { planningContext, planDay, planWeek, readiness } from './engine/planner.js';
+import { planningContext, planDay, planWeek, readiness, slotOf } from './engine/planner.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
@@ -150,7 +150,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const history = vdotHistory(ctx, rd.settings);
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
-    const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date });
+    const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date }) || (done.length ? evaluateSession({ plan: null, activities: ctx.activities, rd, date: ctx.date, act: done.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) }) : null);
     res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || (auto ? 'done' : null), auto, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
@@ -224,10 +224,27 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     res.json({ ok: true });
   }));
 
+  // Aktivitäten der letzten 31 Tage (leichte Liste) und Einzelansicht mit allen Auswertungen.
+  const isRunAct = (a) => a.sport === 'running' && a.distance_m > 1500;
+  const planKind = (ctx, d) => slotOf(ctx.settings, d).kind;
+  const groupOfKind = (k) => (String(k).startsWith('run') ? 'running' : String(k).startsWith('strength') ? 'strength' : k === 'rest' ? null : 'cycling');
   app.get('/api/activities', wrap(async (req, res) => {
     const ctx = await loadContext(store);
-    const n = Math.min(60, Number(req.query.limit) || 25);
-    res.json({ activities: [...ctx.activities].reverse().slice(0, n) });
+    const from = addDays(ctx.today, -31);
+    const list = ctx.activities.filter((a) => a.local_date >= from && a.local_date <= ctx.today && (a.duration_s || 0) > 300)
+      .sort((x, y) => (y.start_time || '').localeCompare(x.start_time || ''))
+      .map((a) => ({ id: a.id, date: a.local_date, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, te_aerobic: a.te_aerobic, extra: groupOfKind(planKind(ctx, a.local_date)) !== a.sport || (a.sport === 'running' && !isRunAct(a)) }));
+    res.json({ today: ctx.today, activities: list });
+  }));
+  app.get('/api/activity/:id', wrap(async (req, res) => {
+    const ctx0 = await loadContext(store);
+    const a = ctx0.activities.find((x) => String(x.id) === String(req.params.id));
+    if (!a || a.local_date < addDays(ctx0.today, -35)) return res.status(404).json({ error: 'Aktivität nicht gefunden' });
+    const plan = planWeek({ ...ctx0, date: a.local_date, today: ctx0.today }).find((p) => p.date === a.local_date);
+    const rd = a.local_date === ctx0.today ? readiness(ctx0) : null;
+    const evaluation = evaluateSession({ plan, activities: ctx0.activities, rd, date: a.local_date, act: a });
+    const { km_splits, best, ...rest } = a;
+    res.json({ activity: { ...rest, splits: a.sport === 'running' ? km_splits : undefined, segments: a.sport === 'running' ? best?.segments : undefined }, plan: evaluation?.free ? null : plan, planned_label: plan?.label || null, evaluation, lthr: ctx0.settings.lthr });
   }));
 
   // Einheit manuell als erledigt oder ausgefallen kennzeichnen (auch nachträglich).

@@ -25,10 +25,12 @@ function verdict(score) {
  * @param {{plan:object, activities:object[], history:object[], rd?:object|null, date:string}} o
  * @returns {null|{score:number, verdict:string, checks:object[], impact:string[]}}
  */
-export function evaluateSession({ plan, activities, rd = null, date }) {
+export function evaluateSession({ plan, activities, rd = null, date, act = null }) {
   const mine = matchingActivities(plan, activities, date);
-  if (!mine.length) return null;
-  const a = mine.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b));
+  const main = mine.length ? mine.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) : null;
+  const a = act || main;
+  if (!a) return null;
+  if (!main || main.id !== a.id) return evaluateFree({ plan, a, activities, rd, date });
   const t = plan.targets || {};
   const checks = [];
   const add = (key, label, w, score, note) => checks.push({ key, label, w, score: Math.round(score * 100) / 100, note });
@@ -79,6 +81,35 @@ export function evaluateSession({ plan, activities, rd = null, date }) {
   const wsum = checks.reduce((s, c) => s + c.w, 0);
   const score = wsum ? Math.round((checks.reduce((s, c) => s + c.w * c.score, 0) / wsum) * 100) : null;
   return { activity_id: a.id, score, verdict: score == null ? 'Absolviert' : verdict(score), checks: checks.map(({ w, ...c }) => c), impact: impact.slice(0, 4) };
+}
+
+
+/** Einheit ohne passende Vorgabe (Ruhetag, andere Sportart, zweite Einheit): Einordnung statt Note. */
+function evaluateFree({ plan, a, activities, rd, date }) {
+  const impact = [];
+  const rest = !plan || plan.kind === 'rest';
+  const why = rest ? 'Ruhetag' : 'abweichend vom Plan';
+  let verdict;
+  let hard = 0;
+  if (a.sport === 'running') {
+    const zs = a.zone_s || [], zt = zs.reduce((x, y) => x + y, 0);
+    const lo = zt ? (zs[0] + zs[1]) / zt : null; hard = zt ? (zs[3] + zs[4]) / zt : 0;
+    verdict = lo == null ? 'Zusätzlicher Lauf' : hard >= 0.25 ? 'Harter Lauf' : lo >= 0.75 ? 'Lockerer Lauf' : 'Mittelschwerer Lauf';
+    if (hard >= 0.25) impact.push('Eine harte Einheit außerhalb des Plans. Bis zur nächsten harten Einheit sollten mindestens 48 Stunden liegen. Der Planer berücksichtigt die Belastung und entschärft die nächsten Einheiten bei Bedarf.');
+    else if (lo != null && lo >= 0.75) impact.push('Ein lockerer Zusatzlauf kostet wenig Erholung, erhöht aber deinen Wochenumfang.');
+    else impact.push('Ein Lauf im mittleren Bereich: zu locker für einen Reiz, zu hart für echte Erholung. Als Zusatz ist das in Ordnung, ersetzt aber keine geplante Einheit.');
+  } else if (a.sport === 'strength') { verdict = 'Zusätzliches Krafttraining'; impact.push('Kraft belastet Beine und Rumpf. Vor dem nächsten harten Lauf sollten mindestens 24 Stunden liegen.'); }
+  else if (a.sport === 'cycling') { verdict = 'Zusätzliches Radfahren'; impact.push('Radfahren zählt als aerobe Grundlage und belastet die Beine wenig.'); }
+  else { verdict = 'Zusätzliche Aktivität'; }
+  verdict += ` · ${why}`;
+  if (rest && a.duration_s > 1200) impact.push('Das war ein Ruhetag. Wiederholt sich das, fehlt die Erholung. Achte morgen früh auf HRV und Ruhepuls.');
+  if (a.te_aerobic >= 4) impact.push(`Garmin wertet den aeroben Trainingseffekt mit ${dec(a.te_aerobic)} als hoch. Rechne mit etwa 48 Stunden, bis du wieder frisch bist.`);
+  if (a.load && a.sport === 'running') {
+    const med = median(activities.filter((x) => x.sport === 'running' && x.local_date < date && x.local_date >= shiftDate(date, -42) && x.load).map((x) => x.load));
+    if (med && a.load > med * 1.3) impact.push(`Die Belastung liegt ${Math.round((a.load / med - 1) * 100)} % über deinem üblichen Lauf der letzten Wochen.`);
+  }
+  if (rd?.acwr != null && rd.acwr > 1.3) impact.push(`Deine Wochenlast ist jetzt hoch (ACWR ${dec(rd.acwr, 2)}). Die nächsten Einheiten werden bei Bedarf entschärft.`);
+  return { activity_id: a.id, free: true, score: null, verdict, checks: [], impact: impact.slice(0, 4) };
 }
 
 function shiftDate(date, n) { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }

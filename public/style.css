@@ -417,3 +417,11 @@ body::before{display:none}
 .sp.iv span:nth-child(2){text-align:left}.sp-h.iv span:nth-child(2){text-align:left}
 .kmfold .kmbody{padding:0 18px 14px}
 .fine.ivn{font-size:12px;margin:10px 4px 0;line-height:1.35}
+.ev .evh .evr b{display:grid;place-items:center;font-size:19px;line-height:1}
+.evr{position:relative}
+.arow{min-height:56px}
+.abar{width:4px;align-self:stretch;margin:6px 0;border-radius:2px;flex:none}
+.at{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.at b{font-size:16px;font-weight:600}.at small{color:var(--muted,#8a8a8e);font-size:13px}
+.xtag{font-style:normal;font-weight:600;font-size:11px;color:#FF9500;background:rgba(255,149,0,.14);border-radius:99px;padding:2px 8px;margin-left:8px;vertical-align:1px}
+.srow.arow+.srow.arow::before{left:30px}

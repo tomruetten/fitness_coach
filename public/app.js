@@ -120,10 +120,33 @@ function evalCard(ev) {
   const col = ev.score == null ? '#8E8E93' : ev.score >= 85 ? '#34C759' : ev.score >= 70 ? '#30B0C7' : ev.score >= 55 ? '#FF9500' : '#FF3B30';
   const ring = ev.score == null ? '' : `<div class="evr" style="--c:${col};--p:${ev.score}"><b>${ev.score}</b></div>`;
   const checks = (ev.checks || []).map((c) => `<div class="evc"><span>${esc(c.label)}</span><i><u style="width:${Math.round(c.score * 100)}%;background:${c.score >= 0.75 ? '#34C759' : c.score >= 0.45 ? '#FF9500' : '#FF3B30'}"></u></i><small>${esc(c.note)}</small></div>`).join('');
-  return `<h2>Bewertung</h2><div class="card ev"><div class="evh">${ring}<div><b>${esc(ev.verdict)}</b><small>im Vergleich zur Vorgabe</small></div></div>${checks ? `<div class="evcs">${checks}</div>` : ''}${ev.impact?.length ? `<div class="evi"><h3>Wirkung auf die nächsten Einheiten</h3>${ev.impact.map((x) => `<p>${esc(x)}</p>`).join('')}</div>` : ''}</div>`;
+  return `<h2>Bewertung</h2><div class="card ev"><div class="evh">${ring}<div><b>${esc(ev.verdict)}</b><small>${ev.free ? 'Einordnung ohne Vorgabe' : 'im Vergleich zur Vorgabe'}</small></div></div>${checks ? `<div class="evcs">${checks}</div>` : ''}${ev.impact?.length ? `<div class="evi"><h3>Wirkung auf die nächsten Einheiten</h3>${ev.impact.map((x) => `<p>${esc(x)}</p>`).join('')}</div>` : ''}</div>`;
 }
 
 /** Soll und Ist eines absolvierten Laufs mit Zonenanteilen und Kilometerzeiten (inkl. steigungskorrigiertem Tempo). */
+/** Zonenbalken, Intervalle/harte Abschnitte und Kilometer-Dropdown eines Laufs. */
+function runExtras(p, a, lthr) {
+  const zs = a.zone_s || [], zt = zs.reduce((x, y) => x + y, 0);
+  const zone = zt ? `<div class="si-zone"><div class="zb">${zs.map((s, i) => (s ? `<i style="flex:${s};background:${ZC[i]}"></i>` : '')).join('')}</div><div class="zt">${zs.map((s, i) => `<span>Z${i + 1} ${Math.round((s / zt) * 100)} %</span>`).join('')}</div></div>` : '';
+  const sp = (a.splits || []).filter((s) => s.pace_s);
+  let splits = '';
+  if (sp.length) {
+    const mn = Math.min(...sp.map((s) => s.pace_s)), mx = Math.max(...sp.map((s) => s.pace_s));
+    splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>GAP</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.gap_s && Math.abs(s.gap_s - s.pace_s) >= 3 ? pace(s.gap_s) : '–'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
+  }
+  // Intervalle: je Wiederholung Pace und Puls gegenüber dem Soll
+  const st = p.structure?.type, segs = (a.segments || []).filter((s) => s.pace_s);
+  const work = (p.profile || []).find((x) => ['int', 'thr', 'mar', 'rep'].includes(x.k));
+  let reps = '';
+  const freeSegs = p.free && segs.length >= 2;
+  if (freeSegs || (p.kind === 'run_quality' && st && st !== 'strides' && st !== 'easy' && segs.length)) {
+    const tp = freeSegs ? null : work?.pace_s;
+    reps = `<h2>${freeSegs ? 'Harte Abschnitte' : st === 'tempo' || st === 'test30' ? 'Tempoteil' : 'Intervalle'}</h2><div class="card"><div class="splits"><div class="sp-h iv"><span>Nr.</span><span>Dauer</span><span>Tempo</span><span>Soll</span><span>Puls</span></div>${segs.map((s, i) => `<div class="sp iv"><span>${i + 1}</span><span>${hm(s.dur_s)}</span><b>${pace(s.pace_s)}</b><span class="mute">${tp ? `${pace(tp)} <em class="${Math.abs(s.pace_s - tp) <= 6 ? 'ok' : 'off'}">${s.pace_s - tp > 0 ? '+' : s.pace_s - tp < 0 ? '−' : '±'}${Math.abs(s.pace_s - tp)}</em>` : '–'}</span><span>${s.hr || '–'}${s.hr_end ? `<small class="mute"> / ${s.hr_end}</small>` : ''}</span></div>`).join('')}</div><p class="fine ivn">Tempo in min/km, Puls Ø / letzte 30 s. Abweichung vom Soll in s/km.</p></div>`;
+  }
+  const kmBlock = splits ? `<details class="card fold kmfold"><summary><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div><b>Pace pro Kilometer</b><span class="cnt">${sp.length}</span>${CHEV}</summary><div class="kmbody">${splits}</div></details>` : '';
+  return { zone, reps, km: kmBlock };
+}
+
 function sollIst(p, a, lthr) {
   const t = p.targets || {};
   const km = a.distance_m / 1000, pc = a.duration_s / km;
@@ -138,24 +161,8 @@ function sollIst(p, a, lthr) {
   const hrOk = a.avg_hr && (t.hr_to ? a.avg_hr <= t.hr_to + 3 && (!t.hr_from || a.avg_hr >= t.hr_from - 6) : true);
   rows.push(row('Puls Ø bpm', t.hr_to ? `${t.hr_from ? t.hr_from + '–' : 'bis '}${t.hr_to}` : '', a.avg_hr ? `${Math.round(a.avg_hr)}` : '–', '', hrOk));
   if (a.rpe != null) rows.push(row('Anstrengung', '', `${a.rpe} / 10`, '', true));
-  const zs = a.zone_s || [], zt = zs.reduce((x, y) => x + y, 0);
-  const zone = zt ? `<div class="si-zone"><div class="zb">${zs.map((s, i) => (s ? `<i style="flex:${s};background:${ZC[i]}"></i>` : '')).join('')}</div><div class="zt">${zs.map((s, i) => `<span>Z${i + 1} ${Math.round((s / zt) * 100)} %</span>`).join('')}</div></div>` : '';
-  const sp = (a.splits || []).filter((s) => s.pace_s);
-  let splits = '';
-  if (sp.length) {
-    const mn = Math.min(...sp.map((s) => s.pace_s)), mx = Math.max(...sp.map((s) => s.pace_s));
-    splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>GAP</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.gap_s && Math.abs(s.gap_s - s.pace_s) >= 3 ? pace(s.gap_s) : '–'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
-  }
-  // Intervalle: je Wiederholung Pace und Puls gegenüber dem Soll
-  const st = p.structure?.type, segs = (a.segments || []).filter((s) => s.pace_s);
-  const work = (p.profile || []).find((x) => ['int', 'thr', 'mar', 'rep'].includes(x.k));
-  let reps = '';
-  if (p.kind === 'run_quality' && st && st !== 'strides' && st !== 'easy' && segs.length) {
-    const tp = work?.pace_s;
-    reps = `<h2>${st === 'tempo' || st === 'test30' ? 'Tempoteil' : 'Intervalle'}</h2><div class="card"><div class="splits"><div class="sp-h iv"><span>Nr.</span><span>Dauer</span><span>Tempo</span><span>Soll</span><span>Puls</span></div>${segs.map((s, i) => `<div class="sp iv"><span>${i + 1}</span><span>${hm(s.dur_s)}</span><b>${pace(s.pace_s)}</b><span class="mute">${tp ? `${pace(tp)} <em class="${Math.abs(s.pace_s - tp) <= 6 ? 'ok' : 'off'}">${s.pace_s - tp > 0 ? '+' : s.pace_s - tp < 0 ? '−' : '±'}${Math.abs(s.pace_s - tp)}</em>` : '–'}</span><span>${s.hr || '–'}${s.hr_end ? `<small class="mute"> / ${s.hr_end}</small>` : ''}</span></div>`).join('')}</div><p class="fine ivn">Tempo in min/km, Puls Ø / letzte 30 s. Abweichung vom Soll in s/km.</p></div>`;
-  }
-  const kmBlock = splits ? `<details class="card fold kmfold"><summary><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div><b>Pace pro Kilometer</b><span class="cnt">${sp.length}</span>${CHEV}</summary><div class="kmbody">${splits}</div></details>` : '';
-  return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${reps}${kmBlock}`;
+  const ex = runExtras(p, a, lthr);
+  return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${ex.zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${ex.reps}${ex.km}`;
 }
 
 function runCard(d) {
@@ -307,6 +314,42 @@ async function viewDay(app, { date, nav }) {
   try { const d = await api('/week'); store.set('c_week', d); if (JSON.stringify(d) !== JSON.stringify(cached)) draw(d); } catch (e) { if (!cached) throw e; }
 }
 
+
+// ---- Aktivitäten: Liste der letzten 30 Tage und Einzelansicht ------------------
+const ACT_COLOR = { running: '#FF6B2C', strength: '#AF52DE', cycling: '#0A84FF' };
+const actTitle = (a) => (a.sport === 'running' && a.distance_m > 500 ? `Lauf ${dec(a.distance_m / 1000, 1)} km` : SPORT[a.sport] === 'Rad' ? 'Radfahren' : SPORT[a.sport] || a.sport);
+async function viewActs(app, { nav }) {
+  const draw = (d) => {
+    const byDate = {};
+    d.activities.forEach((a) => (byDate[a.date] ||= []).push(a));
+    const day = (iso) => new Date(iso + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+    const rows = Object.keys(byDate).sort().reverse().map((iso) => `<h2>${iso === d.today ? 'Heute' : day(iso)}</h2><div class="group">${byDate[iso].map((a) => `<button type="button" class="srow btn arow" data-act="${a.id}"><i class="abar" style="background:${ACT_COLOR[a.sport] || '#8E8E93'}"></i><span class="at"><b>${esc(actTitle(a))}${a.extra ? '<em class="xtag">zusätzlich</em>' : ''}</b><small>${[hm(a.duration_s), a.sport === 'running' && a.distance_m > 500 ? pace(a.duration_s / (a.distance_m / 1000)) + ' /km' : '', a.avg_hr ? Math.round(a.avg_hr) + ' bpm' : ''].filter(Boolean).join(' · ')}</small></span>${CHEV_R}</button>`).join('')}</div>`).join('');
+    app.innerHTML = `<button type="button" class="back" data-back>${icon.back}Woche</button><div class="head"><div class="eyebrow">Letzte 30 Tage</div><h1>Aktivitäten</h1></div>${rows || '<p class="muted center-text">Keine Aktivitäten in den letzten 30 Tagen.</p>'}`;
+    $('[data-back]', app).onclick = () => nav('back');
+    $$('[data-act]', app).forEach((b) => b.addEventListener('click', () => go('act', { id: b.dataset.act })));
+  };
+  const cached = store.get('c_acts');
+  if (cached) draw(cached); else app.innerHTML = '<p class="muted center-text">Lädt …</p>';
+  try { const d = await api('/activities'); store.set('c_acts', d); if (JSON.stringify(d) !== JSON.stringify(cached)) draw(d); } catch (e) { if (!cached) throw e; }
+}
+
+async function viewAct(app, { id, nav }) {
+  const draw = (r) => {
+    const a = r.activity, ev = r.evaluation;
+    const when = new Date(a.local_date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+    let body = statsCard(a) + evalCard(ev);
+    if (a.sport === 'running') {
+      if (r.plan && !ev?.free && a.distance_m > 1500) body += sollIst(r.plan, { ...a, cad: a.avg_cadence }, r.lthr);
+      else { const ex = runExtras({ free: true }, a, r.lthr); body += (ex.zone ? `<h2>Intensität</h2><div class="card">${ex.zone}</div>` : '') + ex.reps + ex.km; }
+    }
+    app.innerHTML = `<button type="button" class="back" data-back>${icon.back}Zurück</button><div class="head"><div class="eyebrow">${when}</div><h1>${esc(actTitle(a))}</h1></div>${ev?.free ? `<div class="card info"><div><b>Außerhalb des Plans</b><p>${r.planned_label ? 'Für diesen Tag war „' + esc(nice(r.planned_label).replace(/ \(.*/, '')) + '“ vorgesehen.' : 'Für diesen Tag war keine passende Einheit vorgesehen.'} Die Einheit fließt trotzdem in deine Belastung ein.</p></div></div>` : ''}${body}`;
+    $('[data-back]', app).onclick = () => nav('back');
+  };
+  const key = 'c_act_' + id, cached = store.get(key);
+  if (cached) draw(cached); else app.innerHTML = '<p class="muted center-text">Lädt …</p>';
+  try { const r = await api('/activity/' + id); store.set(key, r); if (JSON.stringify(r) !== JSON.stringify(cached)) draw(r); } catch (e) { if (!cached) throw e; }
+}
+
 // ---- Woche -----------------------------------------------------------------
 const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const dm = (iso) => `${Number(iso.slice(8, 10))}. ${MON[Number(iso.slice(5, 7)) - 1]}`;
@@ -352,18 +395,22 @@ function drawWeek(d, stale) {
     const g = group(p.kind), t = p.targets || {}, today = dates[i] === d.today, rest = g === 'rest', lock = locked(p, i);
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
     const moved = weekEdit ? p.date !== dates[i] || p.moved : p.moved;
-    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    const extraTxt = rest && (d.week[i].done || []).length ? 'Zusätzlich: ' + (d.week[i].done || []).map((x) => (SPORT[x.sport] || x.sport) + (x.distance_m > 1500 ? ' ' + dec(x.distance_m / 1000, 1) + ' km' : '')).join(', ') : '';
+    const meta = [rest ? extraTxt : (p.title || '').replace(/^Kraft [AB]: /, ''), moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
     const act = d.week[i].done || [];
     const unit = g === 'run' ? 'km' : 'min';
     const planV = g === 'run' ? t.distance_km : t.duration_min;
     const actV = g === 'run' ? act.filter((x) => x.sport === 'running').reduce((s, x) => s + (x.distance_m || 0), 0) / 1000 : act.reduce((s, x) => s + (x.duration_s || 0), 0) / 60;
     const fmtV = (v) => (g === 'run' ? dec(v, 1) : String(Math.round(v)));
     const pv = rest || weekEdit || (!planV && !(actV > 0)) ? '' : actV > 0.05 ? `<div class="pv"><b style="color:${col}">${fmtV(actV)}</b><small>${planV ? `/ ${fmtV(planV)} ` : ''}${unit}</small></div>` : `<div class="pv plan${d.week[i].status === 'skipped' ? ' skip' : ''}"><b>${fmtV(planV)}</b><small>${unit}</small></div>`;
-    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${rest && extraTxt && !weekEdit ? ` data-actid="${d.week[i].done[0].id}"` : ''}${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>
     ${!weekEdit && d.consistency ? consCard(d.consistency, d.today) : ''}
+    ${weekEdit ? '' : `<div class="group"><button type="button" class="srow btn" id="actsBtn"><i class="si2 orange"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></i><span class="sl">Vergangene Aktivitäten</span><span class="muted">30 Tage</span>${CHEV_R}</button></div>`}
     ${weekEdit && (anyMoved || weekEdit.order.some((p, i) => p.date !== dates[i])) ? '<button type="button" class="link" id="wreset">Auf Standardwoche zurücksetzen</button>' : ''}`;
   if (!weekEdit) { play(app, 'week'); loadReview(d.today); } else rings(app, false);
+  $$('.day[data-actid]', app).forEach((r) => r.addEventListener('click', () => go('act', { id: r.dataset.actid })));
+  $('#actsBtn')?.addEventListener('click', () => go('acts'));
   $$('.day[data-open]', app).forEach((r) => r.addEventListener('click', (ev) => {
     if (ev.target.closest('.ring')) return;
     if (r.dataset.kind) go('prep', { kind: r.dataset.kind }); else go('day', { date: r.dataset.open });
@@ -600,7 +647,7 @@ async function render() {
   if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) { movingOn(); const an = app.animate([{ transform: `translateX(${dir * 38}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' }); an.onfinish = an.oncancel = movingOff; } else movingOff();
   dir = 0;
   try {
-    if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
+    if (sub) { const f = { log: viewLog, day: viewDay, acts: viewActs, act: viewAct }[sub.view] || viewPrep; await f(app, { ...sub, nav: go }); return; }
     if (tab === 'more') { await viewMore(isCurrent); return; }
     if (tab === 'analysis') { await viewAnalysis(app, isCurrent); return; }
     const [key, path, draw] = views[tab];
