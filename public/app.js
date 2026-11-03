@@ -381,7 +381,7 @@ async function setupPush(first) {
   const cur = await reg.pushManager.getSubscription();
   const sw = (on, attr) => `<button type="button" class="sw${on ? ' on' : ''}" role="switch" aria-checked="${on}" ${attr}><i></i></button>`;
   box.innerHTML = `<div class="nrow main"><div><b>Mitteilungen auf diesem Gerät</b><small>${cur ? 'Eingeschaltet' : 'Ausgeschaltet. Zum Empfangen hier einschalten.'}</small></div>${sw(!!cur, 'data-dev')}</div>
-    ${cur ? '<button class="sec" id="pushTest">Testmitteilung senden</button>' : ''}<div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
+    <div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
   $('[data-dev]', box).onclick = async () => {
     try {
       const sub = await reg.pushManager.getSubscription();
@@ -394,11 +394,6 @@ async function setupPush(first) {
       setupPush(pu);
     } catch (e) { toast(e.message); }
   };
-  $('#pushTest', box)?.addEventListener('click', async (ev) => {
-    ev.target.disabled = true;
-    try { await api('/push/test', {}); toast('Gesendet, sie sollte gleich ankommen'); } catch (e) { toast(e.message); }
-    ev.target.disabled = false;
-  });
   $$('[data-nid]', box).forEach((b) => b.addEventListener('click', async () => {
     const on = !b.classList.contains('on');
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
@@ -406,6 +401,7 @@ async function setupPush(first) {
   }));
 }
 
+const CHEV_R = '<svg class="chr" width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>';
 async function viewMore(isCurrent = () => true) {
   const cached = store.get('c_more');
   const load = () => Promise.all([api('/settings'), api('/auth/state'), api('/push/state').catch(() => null)]).then(([s, st, pu]) => ({ s, st, pu }));
@@ -417,24 +413,54 @@ async function viewMore(isCurrent = () => true) {
   function draw({ s, st, pu }) {
     const g = s.goal || {};
     const ts = s.thresholdSuggestion;
-    const sugg = ts && ts.lthr && ts.lthr !== s.lthr ? `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App einen neuen Schwellenpuls:</div><div class="kv"><div><small>Vorschlag</small><strong>${ts.lthr} bpm</strong></div><div><small>Aktuell</small><strong>${s.lthr} bpm</strong></div></div><button class="sec" id="applyTh">Übernehmen</button></div>` : '';
-    app.innerHTML = `<div class="head"><h1>Profil</h1></div>${sugg}<h2>Ziel</h2><div class="card">
-      <div class="row"><span>Halbmarathon-Zeit</span><input class="txt" id="gt" style="width:110px;margin:0" value="${Math.floor(g.time_s / 3600)}:${String(Math.floor(g.time_s % 3600 / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}"></div>
-      <div class="row"><span>Wettkampfdatum</span><input class="txt" id="gd" type="date" style="width:160px;margin:0" value="${g.date || ''}"></div>
-      <div class="row"><span>Schwellenpuls</span><input class="txt" id="lthr" type="number" style="width:90px;margin:0" value="${s.lthr}"></div>
-      <div class="row"><span>Maximalpuls</span><input class="txt" id="mhr" type="number" style="width:90px;margin:0" value="${s.max_hr}"></div>
-      <div class="row"><span>Schwellentempo (Startwert)</span><input class="txt" id="ltp" style="width:90px;margin:0" value="${pace(s.lt_pace_s)}"></div>
-      <div class="row"><span>Lockeres Tempo</span><input class="txt" id="ezp" style="width:90px;margin:0" value="${pace(s.easy_pace_s)}"></div>
-      <button class="pri" id="saveS">Speichern</button></div>
-    <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
-    <h2>Mitteilungen</h2><div class="card" id="pushCard"><div class="muted" id="pushInfo">Lädt …</div></div>
-    <h2>Passkeys</h2><div class="card">${(st.passkeys || []).map((k) => `<div class="row"><span>${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10))}</span></div>`).join('')}<button class="sec" id="addPk">Dieses Gerät hinzufügen</button></div>
-    <button class="sec" id="out">Abmelden</button>`;
-    $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k)); render(); } catch (e) { toast(e.message); } });
-    const parseT = (v) => { const p = v.split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
-    $('#saveS').onclick = async () => {
-      try { await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT($('#ltp').value), easy_pace_s: parseT($('#ezp').value), goal: { time_s: parseT($('#gt').value), date: $('#gd').value || null } }); toast('Gespeichert'); store.del('c_more'); } catch (e) { toast(e.message); }
+    const ic = (c, svg) => `<i class="si2 ${c}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg></i>`;
+    const IC = {
+      heart: ic('red', '<path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z"/>'),
+      bolt: ic('orange', '<path d="M13 3L5 13h6l-1 8 8-10h-6z"/>'),
+      pace: ic('blue', '<circle cx="12" cy="13" r="7.5"/><path d="M12 13l3-3M9.5 3h5"/>'),
+      easy: ic('green', '<path d="M3 17c3-6 6-6 9-2s6 3 9-4"/>'),
+      cal: ic('purple', '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8 3v4M16 3v4"/>'),
+      sync: ic('blue', '<path d="M20 11a8 8 0 00-14-4M4 5v4h4M4 13a8 8 0 0014 4M20 19v-4h-4"/>'),
+      hist: ic('gray', '<path d="M4 12a8 8 0 108-8 8 8 0 00-6 2.7M4 4v4h4M12 8v4l3 2"/>'),
+      key: ic('gray', '<circle cx="8" cy="14" r="3.5"/><path d="M10.5 11.5L20 4M16 8l3 3"/>'),
+      plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
+    const gt = g.time_s ? `${Math.floor(g.time_s / 3600)}:${String(Math.floor((g.time_s % 3600) / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}` : '';
+    const days = g.date ? Math.ceil((new Date(g.date + 'T12:00') - new Date()) / 86400000) : null;
+    const sugg = ts && ts.lthr && ts.lthr !== s.lthr ? `<div class="card sugg"><div class="sg-t"><b>Neuer Schwellenpuls erkannt</b><small>Aus deinen letzten harten Läufen: ${ts.lthr} bpm statt ${s.lthr} bpm.</small></div><button class="pill-btn" id="applyTh">Übernehmen</button></div>` : '';
+    const row = (icon, label, id, val, unit, attrs = '') => `<label class="srow">${icon}<span class="sl">${label}</span><input class="val" id="${id}" value="${val}" ${attrs}>${unit ? `<u>${unit}</u>` : ''}</label>`;
+    app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">Einstellungen</div><h1>Profil</h1></div><div class="avatar" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.9-3.6 3.7-5.4 7-5.4s6.1 1.8 7 5.4"/></svg></div></div>
+    <div class="card goal"><div class="kicker">Halbmarathon-Ziel</div><input class="goalbig" id="gt" inputmode="numeric" value="${gt}" placeholder="1:50:00" aria-label="Zielzeit"><div class="goal-d"><span>${g.date ? (days > 0 ? `Wettkampf in ${days} ${days === 1 ? 'Tag' : 'Tagen'}` : 'Wettkampf') : 'Noch kein Termin'}</span><input class="val date" id="gd" type="date" value="${g.date || ''}" aria-label="Wettkampfdatum"></div></div>
+    ${sugg}
+    <h2>Puls und Tempo</h2><div class="group">
+      ${row(IC.heart, 'Schwellenpuls', 'lthr', s.lthr, 'bpm', 'type="number" inputmode="numeric"')}
+      ${row(IC.bolt, 'Maximalpuls', 'mhr', s.max_hr, 'bpm', 'type="number" inputmode="numeric"')}
+      ${row(IC.pace, 'Schwellentempo', 'ltp', pace(s.lt_pace_s), '/km', 'inputmode="numeric"')}
+      ${row(IC.easy, 'Lockeres Tempo', 'ezp', pace(s.easy_pace_s), '/km', 'inputmode="numeric"')}
+    </div><p class="gfoot">Das Schwellentempo ist nur der Startwert. Sobald harte Läufe vorliegen, berechnet die App den Leistungsstand daraus selbst.</p>
+    <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
+    <h2>Garmin</h2><div class="group">
+      <button type="button" class="srow btn" id="sync">${IC.sync}<span class="sl">Jetzt synchronisieren</span>${CHEV_R}</button>
+      <button type="button" class="srow btn" id="hist">${IC.hist}<span class="sl">Verlauf ab 01.01. laden</span>${CHEV_R}</button>
+    </div><p class="gfoot" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</p>
+    <h2>Sicherheit</h2><div class="group">
+      ${(st.passkeys || []).map((k) => `<div class="srow">${IC.key}<span class="sl">${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10).split('-').reverse().join('.'))}</span></div>`).join('')}
+      <button type="button" class="srow btn" id="addPk">${IC.plus}<span class="sl blue">Dieses Gerät hinzufügen</span></button>
+    </div>
+    <div class="group"><button type="button" class="srow btn out" id="out"><span class="sl">Abmelden</span></button></div>`;
+    $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k)); render(); } catch (e) { toast(e.message); } });
+    const parseT = (v) => { const p = v.trim().split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
+    // Änderungen werden direkt gespeichert, sobald ein Feld verlassen wird
+    const save = async () => {
+      const times = { gt: $('#gt').value, ltp: $('#ltp').value, ezp: $('#ezp').value };
+      if (Object.values(times).some((v) => v.trim() && !Number.isFinite(parseT(v)))) return toast('Zeiten bitte als 1:50:00 bzw. 4:58 eingeben');
+      try {
+        await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp), goal: { time_s: parseT(times.gt), date: $('#gd').value || null } });
+        ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k));
+        toast('Gespeichert');
+      } catch (e) { toast(e.message); }
+    };
+    ['gt', 'gd', 'lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
     const doSync = async (from) => {
       $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;
       try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.health) lastHealth = r.health; if (r.done) break; } const h = lastHealth; $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.` + (h ? ` Tageswerte: ${h.rows} Tage (HRV ${h.hrv}, Ruhepuls ${h.rhr}, Schlaf ${h.sleep})${h.errors?.length ? '. Fehler: ' + h.errors.join('; ') : ''}` : ''); }

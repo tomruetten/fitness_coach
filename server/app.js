@@ -17,7 +17,7 @@ import { timingSafeEqual } from 'crypto';
 import { trainingStatus } from './engine/status.js';
 import { weekReview, consistency } from './engine/review.js';
 import { forecast, adviceFor, defaultLocation } from './weather.js';
-import { pushReady, publicKey, sendAll } from './push.js';
+import { pushReady, publicKey } from './push.js';
 import { runNotifications, NOTIFICATIONS, getPrefs } from './notify.js';
 import { mondayOf } from './engine/dates.js';
 
@@ -198,14 +198,6 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const subs = (await store.getSetting('push_subs')) || [];
     const prefs = await getPrefs(store);
     res.json({ ready: pushReady(), key: publicKey(), count: subs.length, types: NOTIFICATIONS.map((n) => ({ id: n.id, title: n.title, desc: n.desc, on: !!prefs[n.id] })) });
-  }));
-  app.post('/api/push/test', wrap(async (req, res) => {
-    const subs = (await store.getSetting('push_subs')) || [];
-    if (!subs.length) return res.status(400).json({ error: 'Kein Gerät angemeldet. Erst Mitteilungen einschalten.' });
-    const r = await sendAll(subs, { title: 'Test', body: 'Mitteilungen funktionieren. So sieht eine Erinnerung aus.', url: '/' });
-    if (!r.sent) return res.status(502).json({ error: r.errors?.[0] || 'Senden fehlgeschlagen' });
-    await store.setSetting('push_subs', r.subs);
-    res.json({ ok: true, sent: r.sent });
   }));
   app.post('/api/push/prefs', wrap(async (req, res) => {
     const { id, on } = req.body || {};

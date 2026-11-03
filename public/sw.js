@@ -1,4 +1,4 @@
-const V = 'coach-v22';
+const V = 'coach-v23';
 const SHELL = ['/', '/style.css', '/app.js', '/util.js', '/charts.js', '/motion.js', '/analysis.js', '/strength.js', '/manifest.webmanifest', '/icons/icon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
