@@ -454,12 +454,22 @@ async function viewMore(isCurrent = () => true) {
     const save = async () => {
       const times = { gt: $('#gt').value, ltp: $('#ltp').value, ezp: $('#ezp').value };
       if (Object.values(times).some((v) => v.trim() && !Number.isFinite(parseT(v)))) return toast('Zeiten bitte als 1:50:00 bzw. 4:58 eingeben');
+      const gs = parseT(times.gt);
+      if (times.gt.trim() && (gs < 3600 || gs > 14400)) return toast('Zielzeit zwischen 1:00:00 und 4:00:00 eingeben');
       try {
         await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp), goal: { time_s: parseT(times.gt), date: $('#gd').value || null } });
         ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k));
         toast('Gespeichert');
       } catch (e) { toast(e.message); }
     };
+    // Zifferntastatur ohne Doppelpunkt: Eingabe automatisch als h:mm:ss bzw. m:ss formatieren
+    const fmtDigits = (v, hours) => {
+      const d = v.replace(/\D/g, '').slice(0, hours ? 5 : 3);
+      if (d.length <= 2) return d;
+      const ss = d.slice(-2), mm = d.slice(-4, -2), h = d.slice(0, -4);
+      return hours ? (h ? `${h}:${mm}:${ss}` : `${d.slice(0, -2)}:${ss}`) : `${d.slice(0, -2)}:${ss}`;
+    };
+    [['gt', true], ['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
     ['gt', 'gd', 'lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
     const doSync = async (from) => {
       $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;

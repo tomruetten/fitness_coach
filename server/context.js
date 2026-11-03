@@ -9,6 +9,12 @@ export const todayIn = (tz = DEFAULT_SETTINGS.timezone) =>
 
 export async function loadSettings(store) {
   const saved = (await store.getSetting('settings')) || {};
+  // Einmalig: durch eine fehlerhafte Eingabe verfälschte Zielzeit auf 1:50:00 zurücksetzen.
+  if (saved.goal && !saved.goal_fix1) {
+    saved.goal = { ...saved.goal, time_s: 6600 };
+    saved.goal_fix1 = true;
+    await store.setSetting('settings', saved);
+  }
   const s = withDefaults(saved);
   if (!saved.block_start) {
     // Der Blockzähler startet mit dem Montag der ersten Nutzung.
