@@ -68,14 +68,14 @@ function runCard(d) {
     zone = `<div class="zone"><div class="zl"><span>Zielpuls</span><span class="mute">${t.hr_from}–${t.hr_to} bpm</span></div><div class="zb">${ZC.map((c, i) => `<i style="flex:${i === 0 ? 3 : 1};background:${c};opacity:${i === zi ? 1 : 0.4}"></i>`).join('')}</div><div class="zt">${['Z1', 'Z2', 'Z3', 'Z4', 'Z5'].map((z, i) => `<span${i === zi ? ' class="on"' : ''}>${z}</span>`).join('')}</div></div>`;
   }
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
-  return `<div class="card hero"><div class="hero-top"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>
+  return `<div class="card hero"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
     ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${zone}
     ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}</div>`;
 }
 function otherCard(d) {
   const p = d.plan, rest = p.kind === 'rest', color = rest ? '#8E8E93' : KIND_COLOR.spinning;
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
-  return `<div class="card hero"><div class="hero-top"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>
+  return `<div class="card hero"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
     ${p.targets?.duration_min ? `<div class="bigs"><div><span>Dauer</span><b>${p.targets.duration_min}<small> min</small></b></div></div>` : ''}<p class="blurb">${esc(p.summary || '')}</p>${steps ? `<div class="lines">${steps}</div>` : ''}</div>`;
 }
 function infoCard(d) {
@@ -86,15 +86,28 @@ function infoCard(d) {
 }
 
 const STATUS = [[null, 'Offen'], ['done', 'Erledigt'], ['skipped', 'Ausgefallen']];
-function statusControl(date, status, label = 'Status') {
-  return `<div class="statusbox"><span class="sl">${label}</span><div class="seg" role="group" aria-label="${label}">${STATUS.map(([k, t]) => `<button type="button" data-status="${k ?? ''}" aria-pressed="${(status || '') === (k ?? '')}" class="${(status || '') === (k ?? '') ? 'on' : ''}${k === 'done' ? ' ok' : k === 'skipped' ? ' no' : ''}">${t}</button>`).join('')}</div></div>`;
+const SI = {
+  open: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/></svg>',
+  done: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8.2 12.4l2.6 2.6 5-5.4"/></svg>',
+  skipped: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/></svg>',
+};
+function statChip({ date, status }) {
+  const k = status || 'open', lab = { open: 'Offen', done: 'Erledigt', skipped: 'Ausgefallen' }[k];
+  return `<div class="stat" data-statdate="${date}"><button type="button" class="chip ${k}" aria-haspopup="menu" aria-expanded="false">${SI[k]}<span>${lab}</span></button>
+    <div class="menu" role="menu" hidden>${STATUS.map(([s, tx]) => `<button type="button" role="menuitem" data-status="${s ?? ''}" class="${(status || '') === (s ?? '') ? 'on' : ''}">${SI[s || 'open']}<span>${tx}</span></button>`).join('')}</div></div>`;
 }
 async function setStatus(date, status) {
   await api('/day/status', { date, status: status || null });
   ['c_today', 'c_week'].forEach((k) => store.del(k));
 }
 function bindStatus(root, date, after) {
-  $$('[data-status]', root).forEach((b) => b.addEventListener('click', async () => {
+  const st = $('.stat', root); if (!st) return;
+  const chip = $('.chip', st), menu = $('.menu', st);
+  const close = () => { menu.hidden = true; chip.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', away, true); };
+  const away = (e) => { if (!st.contains(e.target)) close(); };
+  chip.addEventListener('click', () => { const open = menu.hidden; menu.hidden = !open; chip.setAttribute('aria-expanded', String(open)); if (open) document.addEventListener('click', away, true); });
+  $$('[data-status]', menu).forEach((b) => b.addEventListener('click', async () => {
+    close();
     try { await setStatus(date, b.dataset.status); toast(b.dataset.status === 'done' ? 'Als erledigt markiert' : b.dataset.status === 'skipped' ? 'Als ausgefallen markiert' : 'Status zurückgesetzt'); after(); } catch (e) { toast(e.message); }
   }));
 }
@@ -103,9 +116,8 @@ function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d);
-  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard(d) : otherCard(d);
+  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
   html += infoCard(d);
-  if (p.kind !== 'rest') html += statusControl(d.date, d.status);
   if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   if (d.thresholdSuggestion) {
     const s = d.thresholdSuggestion;
@@ -148,14 +160,14 @@ async function viewDay(app, { date, nav }) {
     data = d;
     const p = d.week.find((x) => x.date === date) || d.week[0];
     const g = group(p.kind), past = date <= d.today;
-    const fake = { plan: p, thresholds: { lthr: d.lthr } };
+    const fake = { plan: p, thresholds: { lthr: d.lthr }, stat: past ? { date, status: p.status } : null };
     const wd = new Date(date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
     app.innerHTML = `<button type="button" class="back" data-act="back">${icon.back}Woche</button>
       <div class="head"><div class="eyebrow">${wd}${date === d.today ? ' · heute' : ''}</div><h1>${esc(nice(p.label).replace(/ \(.*/, '').split(' · ')[0])}</h1></div>
       ${g === 'run' ? runCard(fake) : otherCard(fake)}
       ${!past ? '<div class="card info"><div class="ico">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg></div><div><b>Vorläufig</b><p>Das ist der geplante Ablauf. Am Tag selbst passt die App die Einheit an deine Erholung an, etwa bei schlechtem Schlaf oder hoher Belastung.</p></div></div>' : ''}
       ${(p.why || []).length ? infoCard({ plan: p, readiness: { signals: [] } }) : ''}
-      ${past ? statusControl(date, p.status, 'Wurde die Einheit gemacht?') : ''}`;
+`;
     $('[data-act=back]', app).onclick = () => nav('week');
     bindStatus(app, date, () => { store.del('c_week'); viewDay(app, { date, nav }); });
   };
