@@ -97,6 +97,32 @@ async function loadWeather(date) {
   try { const r = await api('/weather?date=' + date); store.set(key, { t: Date.now(), r }); show(r); } catch { /* Wetter ist optional */ }
 }
 
+/** Kennzahlen der Aktivität als Kacheln. */
+function statsCard(a) {
+  const run = a.sport === 'running';
+  const items = [
+    ['Dauer', hm(a.duration_s)],
+    a.distance_m > 500 ? ['Distanz', `${dec(a.distance_m / 1000, run ? 2 : 1)} km`] : null,
+    run && a.distance_m > 500 ? ['Tempo', `${pace(a.duration_s / (a.distance_m / 1000))} /km`] : null,
+    a.avg_hr ? ['Puls Ø', `${Math.round(a.avg_hr)} bpm`] : null,
+    a.max_hr ? ['Puls max', `${Math.round(a.max_hr)} bpm`] : null,
+    run && a.ascent_m ? ['Anstieg', `${Math.round(a.ascent_m)} m`] : null,
+    run && a.avg_cadence ? ['Schrittfrequenz', `${Math.round(a.avg_cadence)} spm`] : null,
+    a.te_aerobic != null ? ['Trainingseffekt', dec(a.te_aerobic, 1)] : null,
+    a.rpe != null ? ['Anstrengung', `${a.rpe} / 10`] : null,
+  ].filter(Boolean);
+  return `<h2>Deine Einheit</h2><div class="card"><div class="astats">${items.map(([l, v]) => `<div><small>${l}</small><b>${v}</b></div>`).join('')}</div></div>`;
+}
+
+/** Bewertung gegenüber der Vorgabe und Folgen für die nächsten Einheiten. */
+function evalCard(ev) {
+  if (!ev) return '';
+  const col = ev.score == null ? '#8E8E93' : ev.score >= 85 ? '#34C759' : ev.score >= 70 ? '#30B0C7' : ev.score >= 55 ? '#FF9500' : '#FF3B30';
+  const ring = ev.score == null ? '' : `<div class="evr" style="--c:${col};--p:${ev.score}"><b>${ev.score}</b></div>`;
+  const checks = (ev.checks || []).map((c) => `<div class="evc"><span>${esc(c.label)}</span><i><u style="width:${Math.round(c.score * 100)}%;background:${c.score >= 0.75 ? '#34C759' : c.score >= 0.45 ? '#FF9500' : '#FF3B30'}"></u></i><small>${esc(c.note)}</small></div>`).join('');
+  return `<h2>Bewertung</h2><div class="card ev"><div class="evh">${ring}<div><b>${esc(ev.verdict)}</b><small>im Vergleich zur Vorgabe</small></div></div>${checks ? `<div class="evcs">${checks}</div>` : ''}${ev.impact?.length ? `<div class="evi"><h3>Wirkung auf die nächsten Einheiten</h3>${ev.impact.map((x) => `<p>${esc(x)}</p>`).join('')}</div>` : ''}</div>`;
+}
+
 /** Soll und Ist eines absolvierten Laufs mit Zonenanteilen und Kilometerzeiten (inkl. steigungskorrigiertem Tempo). */
 function sollIst(p, a, lthr) {
   const t = p.targets || {};
@@ -207,7 +233,10 @@ function drawToday(d, stale) {
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
   if (g === 'run') html += `<div id="wx"></div>` + fitCard(d);
   html += infoCard(d, true);
-  if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}${d.done.some((a) => a.sport === 'running') ? '<button type="button" class="link" id="siBtn">Soll und Ist ansehen</button>' : ''}</div>`;
+  const main = d.evaluation ? d.done.find((x) => x.id === d.evaluation.activity_id) : null;
+  if (main) html += statsCard(main) + evalCard(d.evaluation) + (main.sport === 'running' ? '<button type="button" class="link solo" id="siBtn">Soll und Ist mit Kilometerzeiten ansehen</button>' : '');
+  const rest = d.done.filter((x) => !main || x.id !== main.id);
+  if (rest.length) html += `<h2>${main ? 'Weitere Aktivitäten' : 'Heute erledigt'}</h2><div class="card">${rest.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   html += `<div class="subrow"><button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>${p.kind !== 'rest' ? `<button type="button" class="subtle" id="unfitBtn">${d.unfit ? 'Nicht fit zurücknehmen' : 'Heute nicht fit'}</button>` : ''}</div>`;
   app.innerHTML = html;
   $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
@@ -255,6 +284,7 @@ async function viewDay(app, { date, nav }) {
     app.innerHTML = `<button type="button" class="back" data-act="back">${icon.back}Woche</button>
       <div class="head"><div class="eyebrow">${wd}${date === d.today ? ' · heute' : ''}</div><h1>${esc(nice(p.label).replace(/ \(.*/, '').split(' · ')[0])}</h1></div>
       ${g === 'run' ? runCard(fake) : otherCard(fake)}
+      ${p.evaluation && (p.done || []).find((x) => x.id === p.evaluation.activity_id) ? statsCard(p.done.find((x) => x.id === p.evaluation.activity_id)) + evalCard(p.evaluation) : ''}
       ${g === 'run' && past && (p.done || []).some((a) => a.sport === 'running') ? sollIst(p, [...p.done].filter((a) => a.sport === 'running').sort((x, y) => y.distance_m - x.distance_m)[0], d.lthr) : ''}
       ${!past ? '<div class="card info"><div class="ico">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg></div><div><b>Vorläufig</b><p>Das ist der geplante Ablauf. Am Tag selbst passt die App die Einheit an deine Erholung an, etwa bei schlechtem Schlaf oder hoher Belastung.</p></div></div>' : ''}
       ${(p.why || []).length ? infoCard({ plan: p, readiness: { signals: [] } }) : ''}
@@ -332,7 +362,7 @@ function drawWeek(d, stale) {
   $$('.ring', app).forEach((b) => b.addEventListener('click', async (ev) => {
     ev.stopPropagation();
     const i = Number(b.dataset.ring);
-    try { await setStatus(dates[i], isDone(d.week[i]) ? null : 'done'); render(); } catch (e) { toast(e.message); }
+    try { await setStatus(dates[i], isDone(d.week[i]) ? (d.week[i].auto ? 'skipped' : null) : 'done'); render(); } catch (e) { toast(e.message); }
   }));
   $('#wedit').onclick = async () => {
     if (!weekEdit) { weekEdit = { order: [...d.week], sel: null }; return drawWeek(d, stale); }
@@ -504,7 +534,7 @@ async function viewMore(isCurrent = () => true) {
 let syncing = false;
 async function autoSync(force = false) {
   const last = store.get('auto_sync') || 0;
-  if (syncing || (!force && Date.now() - last < 10 * 60 * 1000)) return;
+  if (syncing || (!force && Date.now() - last < 3 * 60 * 1000)) return;
   syncing = true;
   try {
     let added = 0, health = 0;
@@ -582,6 +612,7 @@ async function start() {
   Promise.all([api('/settings'), api('/auth/state')]).then(([s, st]) => store.set('c_more', { s, st })).catch(() => {});
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
+setInterval(() => { if (!document.hidden && !$('#tabs').hidden) autoSync(); }, 5 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
 // ---- Navigationsblase unten: folgt dem aktiven Tab (und dem Finger beim Wischen) -----------------
 const pill = document.createElement('i');

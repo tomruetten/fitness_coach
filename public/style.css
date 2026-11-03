@@ -395,3 +395,20 @@ body::before{display:none}
 .pill-btn{border:0;border-radius:99px;background:#0a7aff;color:#fff;font-family:inherit;font-weight:600;font-size:14px;padding:8px 14px}
 .group .nrow{padding:12px 16px;position:relative}
 .group .ntypes{border-top:.5px solid rgba(60,60,67,.18)}
+
+/* ---- Aktivität: Kennzahlen und Bewertung ---- */
+.astats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 10px;padding:4px 2px}
+.astats small{display:block;font-size:12px;color:var(--muted,#8a8a8e);margin-bottom:2px}
+.astats b{font-size:17px;font-variant-numeric:tabular-nums;font-weight:650}
+.ev .evh{display:flex;align-items:center;gap:14px}
+.ev .evh b{display:block;font-size:18px}.ev .evh small{color:var(--muted,#8a8a8e);font-size:13px}
+.evr{--p:0;width:60px;height:60px;border-radius:50%;display:grid;place-items:center;flex:none;background:conic-gradient(var(--c) calc(var(--p)*1%),rgba(120,120,128,.18) 0)}
+.evr b{width:46px;height:46px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:19px;font-variant-numeric:tabular-nums}
+.evcs{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+.evc{display:grid;grid-template-columns:118px 1fr;gap:2px 10px;align-items:center;font-size:14px}
+.evc i{height:6px;border-radius:3px;background:rgba(120,120,128,.18);overflow:hidden}.evc u{display:block;height:100%;border-radius:3px}
+.evc small{grid-column:1/-1;color:var(--muted,#8a8a8e);font-size:12.5px}
+.evi{margin-top:14px;padding-top:12px;border-top:.5px solid rgba(60,60,67,.18)}
+.evi h3{font-size:13px;font-weight:600;color:var(--muted,#8a8a8e);margin:0 0 6px}
+.evi p{margin:0 0 8px;font-size:14.5px;line-height:1.42}.evi p:last-child{margin-bottom:0}
+.link.solo{display:block;margin:10px auto 0;text-align:center}

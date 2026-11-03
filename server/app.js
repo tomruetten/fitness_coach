@@ -17,6 +17,7 @@ import { timingSafeEqual } from 'crypto';
 import { trainingStatus } from './engine/status.js';
 import { weekReview, consistency } from './engine/review.js';
 import { forecast, adviceFor, defaultLocation } from './weather.js';
+import { evaluateSession, matchingActivities } from './engine/evaluate.js';
 import { pushReady, publicKey } from './push.js';
 import { runNotifications, NOTIFICATIONS, getPrefs } from './notify.js';
 import { mondayOf } from './engine/dates.js';
@@ -148,7 +149,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
     const history = vdotHistory(ctx, rd.settings);
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
-    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
+    const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date });
+    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || (auto ? 'done' : null), auto, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -159,7 +162,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, max_hr: a.max_hr, load: a.load, ascent_m: a.ascent_m, rpe: a.rpe, te: a.te_aerobic, cad: a.avg_cadence, zone_s: a.zone_s, splits: a.sport === 'running' ? a.km_splits : undefined })) }));
     const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
     const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
-    res.json({ today: ctx.today, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
+    res.json({ today: ctx.today, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, status: ctx.settings._status?.[p.date] || (auto ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
   }));
 
   // Rückblick auf die letzte volle Woche (am Montag/Dienstag wird er oben in der Woche gezeigt).
