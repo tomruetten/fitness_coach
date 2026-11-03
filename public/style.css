@@ -111,3 +111,22 @@ nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width
 .exacts{display:flex;gap:8px;margin-top:10px}.exacts button{flex:1;height:38px;border:0;border-radius:12px;background:var(--bg);color:var(--mute2);font-size:14px;font-weight:600}.exacts .danger{color:var(--bad)}
 .emptyhint{text-align:center;padding:22px 18px}
 .bar-fixed.two{display:flex;flex-direction:column;gap:4px;padding-top:12px}.bar-fixed.two .link{padding:4px;font-size:14px}
+/* Überarbeitung: luftigere Auswahl und Startleiste */
+#app.busy{opacity:.55;transition:opacity .15s;pointer-events:none}
+.picker{gap:16px;padding:20px}
+.picker .ptitle{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.sel{height:52px;padding:0 40px 0 16px;border-radius:14px;font-size:17px;background-color:var(--bg);background-position:right 16px center}
+#newBox{gap:14px}
+.picker .txt{height:52px;border-radius:14px;font-size:17px;padding:0 16px}
+.fld{font-size:13px;gap:6px}
+.addrow{gap:12px}
+.pbtns{flex-direction:column;align-items:stretch;gap:6px}
+.pbtns .cta.small{width:100%;height:50px;border-radius:14px;font-size:16px}
+.pbtns .link{display:block;width:100%;text-align:center;padding:10px}
+.picker .cta.small{background:var(--purple)}
+#app.sub{padding-bottom:calc(210px + env(safe-area-inset-bottom))}
+.bar-fixed.two{display:flex;flex-direction:column;gap:10px;padding:14px 20px calc(16px + env(safe-area-inset-bottom))}
+.bar-fixed.two .cta{width:100%;max-width:520px;margin:0 auto}
+.bar-fixed.two .cta.ghost{height:46px;border-radius:14px;background:var(--fill);color:var(--acc);font-size:15px;font-weight:600}
+.card.list{border-radius:22px}
+.addbtn{height:54px}

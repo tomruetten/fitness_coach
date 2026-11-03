@@ -304,7 +304,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
 
   if (serveStatic) {
     const pub = path.join(here, '..', 'public');
-    app.use(express.static(pub, { setHeaders: (res, p) => { if (/sw\.js$|index\.html$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } }));
+    app.use(express.static(pub, { setHeaders: (res, p) => { res.setHeader('Cache-Control', 'no-cache'); } }));
     app.get('*', (req, res) => res.sendFile(path.join(pub, 'index.html')));
   }
 

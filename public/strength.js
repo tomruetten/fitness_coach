@@ -67,12 +67,12 @@ function pickerBind(root, cat, exclude, onPick, onCancel) {
 // ---- Übungen festlegen ----------------------------------------------------
 export async function viewPrep(app, { kind, nav }) {
   let s = null, edit = false, list = [], adding = false, cat = [];
-  const load = async (k) => {
-    kind = k;
-    app.innerHTML = '<p class="muted center-text">Lädt …</p>';
-    [s, cat] = await Promise.all([api('/strength/session?kind=' + k), loadCatalog()]);
-    list = s.exercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps }));
-    draw();
+  const sessions = {}; // je Vorlage gemerkt, damit das Umschalten sofort geht
+  const fetchKind = async (k) => { sessions[k] = await api('/strength/session?kind=' + k); return sessions[k]; };
+  const apply = (k) => { kind = k; s = sessions[k]; list = s.exercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps })); draw(); };
+  const load = async (k, force = false) => {
+    if (force || !sessions[k]) { app.classList.add('busy'); try { await fetchKind(k); } finally { app.classList.remove('busy'); } }
+    apply(k);
   };
   const draw = () => {
     const by = Object.fromEntries(s.exercises.map((e) => [e.id, e]));
@@ -90,7 +90,7 @@ export async function viewPrep(app, { kind, nav }) {
       ${adding ? pickerHtml(cat, new Set(list.map((e) => e.id)), 'Übung zur Vorlage hinzufügen') : `<button type="button" class="addbtn" data-act="add">${icon.plus}Übung hinzufügen</button>`}
       ${edit && s.customized && kind !== 'strength_x' ? '<button type="button" class="link" data-act="reset">Auf Standard zurücksetzen</button>' : ''}
       <p class="foot">Die Auswahlliste enthält alle Übungen, die du je angelegt oder trainiert hast. Die Vorgabe „+2,5 kg“ kommt aus deinen letzten Einheiten: Hast du alle Sätze geschafft, schlägt die App etwas mehr Gewicht vor.</p>
-      <div class="bar-fixed two"><button type="button" class="cta" data-act="start" ${list.length ? '' : 'disabled'}>Mit dieser Vorlage starten</button><button type="button" class="link" data-act="blank">Leer starten und Übungen später hinzufügen</button></div>`;
+      <div class="bar-fixed two"><button type="button" class="cta" data-act="start" ${list.length ? '' : 'disabled'}>Mit dieser Vorlage starten</button><button type="button" class="cta ghost" data-act="blank">Leer starten, Übungen später hinzufügen</button></div>`;
     bind();
   };
   const persist = async () => { await api('/strength/template', { kind, exercises: list }); };
@@ -98,7 +98,7 @@ export async function viewPrep(app, { kind, nav }) {
     $$('[data-kind]', app).forEach((b) => b.addEventListener('click', async () => { if (b.dataset.kind !== kind) { edit = false; adding = false; await load(b.dataset.kind).catch((e) => toast(e.message)); } }));
     $('[data-act=back]', app).onclick = () => nav('today');
     $('[data-act=edit]', app).onclick = async () => {
-      if (edit) { try { await persist(); await load(kind); } catch (e) { toast(e.message); } edit = false; draw(); } else { edit = true; draw(); }
+      if (edit) { try { await persist(); await load(kind, true); } catch (e) { toast(e.message); } edit = false; draw(); } else { edit = true; draw(); }
     };
     $$('[data-rm]', app).forEach((b) => b.addEventListener('click', () => { list.splice(Number(b.dataset.rm), 1); draw(); }));
     $$('[data-sd]', app).forEach((b) => b.addEventListener('click', () => { const e = list[Number(b.dataset.sd)]; e.sets = Math.max(1, e.sets - 1); draw(); }));
@@ -107,13 +107,16 @@ export async function viewPrep(app, { kind, nav }) {
     $('[data-act=add]', app)?.addEventListener('click', () => { adding = true; draw(); });
     if (adding) pickerBind(app, cat, new Set(list.map((e) => e.id)), async (c) => {
       list.push({ id: c.id, name: c.name, sets: c.sets, reps: c.reps }); adding = false;
-      try { await persist(); await load(kind); } catch (e) { toast(e.message); }
+      try { await persist(); await load(kind, true); } catch (e) { toast(e.message); }
     }, () => { adding = false; draw(); });
-    $('[data-act=reset]', app)?.addEventListener('click', async () => { try { await api('/strength/template', { kind, exercises: null }); edit = false; await load(kind); } catch (e) { toast(e.message); } });
+    $('[data-act=reset]', app)?.addEventListener('click', async () => { try { await api('/strength/template', { kind, exercises: null }); edit = false; await load(kind, true); } catch (e) { toast(e.message); } });
     $('[data-act=start]', app).onclick = async () => { if (edit) { try { await persist(); } catch (e) { return toast(e.message); } } nav('log', { kind }); };
     $('[data-act=blank]', app).onclick = () => nav('log', { kind: 'strength_x', blank: true });
   };
-  await load(kind);
+  app.innerHTML = '<p class="muted center-text">Lädt …</p>';
+  [, cat] = await Promise.all([fetchKind(kind), loadCatalog()]);
+  apply(kind);
+  Object.keys(KIND_NAME).filter((k) => k !== kind).forEach((k) => fetchKind(k).catch(() => {})); // übrige Vorlagen im Hintergrund
 }
 
 // ---- Logbuch ---------------------------------------------------------------
