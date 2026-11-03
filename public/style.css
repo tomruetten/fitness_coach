@@ -412,3 +412,8 @@ body::before{display:none}
 .evi h3{font-size:13px;font-weight:600;color:var(--muted,#8a8a8e);margin:0 0 6px}
 .evi p{margin:0 0 8px;font-size:14.5px;line-height:1.42}.evi p:last-child{margin-bottom:0}
 .link.solo{display:block;margin:10px auto 0;text-align:center}
+.sp-h.iv,.sp.iv{grid-template-columns:26px 54px 50px 1fr 62px}
+.sp.iv b{font-weight:650}.sp.iv em{font-style:normal;font-size:11.5px}.sp.iv em.ok{color:#34C759}.sp.iv em.off{color:#FF9500}
+.sp.iv span:nth-child(2){text-align:left}.sp-h.iv span:nth-child(2){text-align:left}
+.kmfold .kmbody{padding:0 18px 14px}
+.fine.ivn{font-size:12px;margin:10px 4px 0;line-height:1.35}

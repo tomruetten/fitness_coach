@@ -146,7 +146,16 @@ function sollIst(p, a, lthr) {
     const mn = Math.min(...sp.map((s) => s.pace_s)), mx = Math.max(...sp.map((s) => s.pace_s));
     splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>GAP</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.gap_s && Math.abs(s.gap_s - s.pace_s) >= 3 ? pace(s.gap_s) : '–'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
   }
-  return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${splits ? `<h2>Kilometer</h2><div class="card">${splits}</div>` : ''}`;
+  // Intervalle: je Wiederholung Pace und Puls gegenüber dem Soll
+  const st = p.structure?.type, segs = (a.segments || []).filter((s) => s.pace_s);
+  const work = (p.profile || []).find((x) => ['int', 'thr', 'mar', 'rep'].includes(x.k));
+  let reps = '';
+  if (p.kind === 'run_quality' && st && st !== 'strides' && st !== 'easy' && segs.length) {
+    const tp = work?.pace_s;
+    reps = `<h2>${st === 'tempo' || st === 'test30' ? 'Tempoteil' : 'Intervalle'}</h2><div class="card"><div class="splits"><div class="sp-h iv"><span>Nr.</span><span>Dauer</span><span>Tempo</span><span>Soll</span><span>Puls</span></div>${segs.map((s, i) => `<div class="sp iv"><span>${i + 1}</span><span>${hm(s.dur_s)}</span><b>${pace(s.pace_s)}</b><span class="mute">${tp ? `${pace(tp)} <em class="${Math.abs(s.pace_s - tp) <= 6 ? 'ok' : 'off'}">${s.pace_s - tp > 0 ? '+' : s.pace_s - tp < 0 ? '−' : '±'}${Math.abs(s.pace_s - tp)}</em>` : '–'}</span><span>${s.hr || '–'}${s.hr_end ? `<small class="mute"> / ${s.hr_end}</small>` : ''}</span></div>`).join('')}</div><p class="fine ivn">Tempo in min/km, Puls Ø / letzte 30 s. Abweichung vom Soll in s/km.</p></div>`;
+  }
+  const kmBlock = splits ? `<details class="card fold kmfold"><summary><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div><b>Pace pro Kilometer</b><span class="cnt">${sp.length}</span>${CHEV}</summary><div class="kmbody">${splits}</div></details>` : '';
+  return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${reps}${kmBlock}`;
 }
 
 function runCard(d) {
