@@ -98,7 +98,7 @@ function drawToday(d, stale) {
   }
   html += `<h2>Schmerz melden</h2><div class="card"><div class="muted">Optional. Ab 4 von 10 werden belastende Übungen ersetzt.</div><div class="pain">${[0, 2, 4, 6, 8].map((n) => `<button data-pain="${n}">${n}</button>`).join('')}</div></div>`;
   app.innerHTML = html;
-  $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind })));
+  $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
   $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); render(); } catch (e) { toast(e.message); } });
   $$('[data-pain]', app).forEach((b) => b.addEventListener('click', async () => {
     const area = Number(b.dataset.pain) >= 4 ? (prompt('Wo? (z. B. Knie, Achillessehne)') || null) : null;
@@ -239,7 +239,7 @@ async function render() {
   app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
   try {
-    if (sub) { const f = sub.view === 'log' ? viewLog : viewPrep; await f(app, { kind: sub.kind, nav: go }); return; }
+    if (sub) { const f = sub.view === 'log' ? viewLog : viewPrep; await f(app, { ...sub, nav: go }); return; }
     if (tab === 'more') { await viewMore(); return; }
     if (tab === 'analysis') { await viewAnalysis(app, isCurrent); return; }
     const [key, path, draw] = views[tab];

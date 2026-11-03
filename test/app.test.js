@@ -120,3 +120,28 @@ test('Woche umplanen: Einheiten tauschen und zurücksetzen', async () => {
   assert.deepEqual(w3.map((p) => p.kind), kinds);
   t.close();
 });
+
+test('Übungskatalog, freies Training und Notizen', async () => {
+  const t = await boot();
+  const b = await (await t.call('/api/strength/session?kind=strength_x&blank=1')).json();
+  assert.equal(b.exercises.length, 0);
+  assert.equal(b.blank, true);
+  const date = b.date;
+  const body = { date, kind: null, notes: { x_beinpresse: 'Sitz 4, Lehne 3' }, exercises: [{ id: 'x_beinpresse', name: 'Beinpresse', reps_spec: '10', sets: [{ weight_kg: 80, reps: 10, done: true }, { weight_kg: 85, reps: 8, done: true }] }] };
+  assert.equal((await t.call('/api/strength/sets', { body })).status, 200);
+  const cat = (await (await t.call('/api/strength/exercises')).json()).exercises;
+  const bp = cat.find((e) => e.id === 'x_beinpresse');
+  assert.ok(bp);
+  assert.equal(bp.reps, '10');
+  assert.equal(bp.memo, 'Sitz 4, Lehne 3');
+  assert.ok(cat.some((e) => e.id !== 'x_beinpresse'), 'Plan-Übungen sind im Katalog');
+  // Template-Übung landet ebenfalls im Katalog
+  await t.call('/api/strength/template', { body: { kind: 'strength_x', exercises: [{ name: 'Latzug', sets: 4, reps: '10' }] } });
+  const cat2 = (await (await t.call('/api/strength/exercises')).json()).exercises;
+  assert.ok(cat2.find((e) => e.name === 'Latzug' && e.sets === 4));
+  // Notiz löschen
+  await t.call('/api/strength/sets', { body: { date, kind: null, notes: { x_beinpresse: '' }, exercises: [] } });
+  const cat3 = (await (await t.call('/api/strength/exercises')).json()).exercises;
+  assert.equal(cat3.find((e) => e.id === 'x_beinpresse').memo, '');
+  t.close();
+});

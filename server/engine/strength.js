@@ -33,7 +33,8 @@ export function lastSession(sets, exId, beforeDate) {
  * Baut die Einheit: Übungen aus der eigenen Vorlage (falls vorhanden) oder aus dem Plan,
  * je Übung die letzte Einheit und vorbefüllte Sätze.
  */
-export function sessionFor({ plan, kind, template, sets, date }) {
+export function sessionFor({ plan, kind, template, sets, date, notes = {}, blank = false }) {
+  if (blank) return { date, kind: 'strength_x', title: 'Freies Training', summary: '', duration_min: 0, exercises: [], customized: false, blank: true };
   const planned = plan?.exercises || [];
   const base = template?.[kind]?.length ? template[kind] : planned.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps }));
   const exercises = base.map((b) => {
@@ -51,7 +52,7 @@ export function sessionFor({ plan, kind, template, sets, date }) {
       id: b.id, name: b.name, sets: n, reps: String(b.reps ?? ''), timed,
       weight_kg: suggest ?? null,
       delta_kg: suggest != null && lastTop != null && suggest > lastTop ? r1(suggest - lastTop) : null,
-      note: p?.note || null,
+      note: p?.note || null, memo: notes[b.id] || '',
       last, prefill, custom: !p,
     };
   });
@@ -93,4 +94,23 @@ export function strengthAnalysis({ sets, range, ex, date }) {
     out.hist = rows.slice(0, 4).map((h, i) => ({ ...h, delta: rows[i + 1] ? r1(h.kg - rows[i + 1].kg) : null }));
   }
   return out;
+}
+
+/** Eine Übung aus Katalog oder Plan mit Verlauf, vorbefüllten Sätzen und Notiz (für „Übung hinzufügen“). */
+export function exerciseInfo(b, { sets, date, notes = {} }) {
+  const last = lastSession(sets, b.id, date);
+  const lastTop = last ? Math.max(...last.sets.map((s) => s.kg)) : null;
+  const n = Math.max(1, Math.min(10, Number(b.sets) || last?.sets.length || 3));
+  const prefill = Array.from({ length: n }, (_, i) => ({ kg: last?.sets[i]?.kg ?? lastTop ?? 0, reps: last?.sets[i]?.reps ?? firstInt(b.reps) ?? 8 }));
+  return { id: b.id, name: b.name, sets: n, reps: String(b.reps ?? '8'), timed: isTimed(b.reps), last, prefill, memo: notes[b.id] || '' };
+}
+
+/** Katalog aller bekannten Übungen: gespeicherte, Plan-Übungen und alles aus dem Verlauf. */
+export function exerciseCatalog({ catalog = [], planned = [], sets }) {
+  const by = new Map();
+  const put = (e, prefer) => { if (e?.id && e.name && (prefer || !by.has(e.id))) by.set(e.id, { id: e.id, name: e.name, sets: e.sets, reps: e.reps }); };
+  catalog.forEach((e) => put(e, true));
+  planned.forEach((e) => put(e, false));
+  for (const s of sets) if (!by.has(s.exercise_id)) put({ id: s.exercise_id, name: s.exercise_name, sets: 3, reps: '8' }, false);
+  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }

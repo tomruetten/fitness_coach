@@ -8,7 +8,7 @@ import { loadContext, loadSettings, todayIn } from './context.js';
 import { planDay, planWeek, readiness } from './engine/planner.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { trends, trendsWindow } from './engine/trends.js';
-import { sessionFor, strengthAnalysis } from './engine/strength.js';
+import { sessionFor, strengthAnalysis, exerciseInfo, exerciseCatalog } from './engine/strength.js';
 import { addDays, weekDates, weekday } from './engine/dates.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
@@ -113,7 +113,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
     const { settings, ...rdOut } = rd;
     let session = null;
-    if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date });
+    if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
     res.json({ date: ctx.date, session, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
@@ -167,7 +167,29 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const kind = KINDS.includes(req.query.kind) ? req.query.kind : 'strength_a';
     const ctx = await loadContext(store);
     const plan = planWeek(ctx).find((p) => p.kind === kind) || null;
-    res.json(sessionFor({ plan, kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date }));
+    res.json(sessionFor({ plan, kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {}, blank: req.query.blank === '1' }));
+  }));
+
+  // Übungskatalog: wächst mit jeder Übung, die du anlegst oder trainierst.
+  const cleanEx = (e) => ({ id: String(e.id || '').slice(0, 40), name: String(e.name || '').trim().slice(0, 60), sets: Math.max(1, Math.min(10, Number(e.sets) || 3)), reps: String(e.reps || '8').slice(0, 20) });
+  async function registerCatalog(list) {
+    const cat = (await store.getSetting('exercise_catalog')) || [];
+    let changed = false;
+    for (const raw of list) {
+      const e = cleanEx(raw);
+      if (!e.id || !e.name) continue;
+      const i = cat.findIndex((c) => c.id === e.id);
+      if (i < 0) { cat.push(e); changed = true; } else if (cat[i].sets !== e.sets || cat[i].reps !== e.reps || cat[i].name !== e.name) { cat[i] = e; changed = true; }
+    }
+    if (changed) await store.setSetting('exercise_catalog', cat.slice(-300));
+  }
+  app.get('/api/strength/exercises', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    const planned = planWeek(ctx).filter((p) => p.exercises).flatMap((p) => p.exercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps })));
+    const sets = await store.setsSince(addDays(ctx.date, -400));
+    const notes = (await store.getSetting('exercise_notes')) || {};
+    const cat = exerciseCatalog({ catalog: (await store.getSetting('exercise_catalog')) || [], planned, sets });
+    res.json({ exercises: cat.map((b) => exerciseInfo(b, { sets, date: ctx.date, notes })) });
   }));
   app.post('/api/strength/template', wrap(async (req, res) => {
     const kind = req.body?.kind;
@@ -183,6 +205,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       if (!all[kind].length) delete all[kind];
     }
     await store.setSetting('strength_template', all);
+    if (all[kind]) await registerCatalog(all[kind]);
     res.json({ ok: true });
   }));
   app.post('/api/strength/sets', wrap(async (req, res) => {
@@ -199,6 +222,13 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       });
     }
     await store.replaceSets(date, rows);
+    const used = (Array.isArray(req.body?.exercises) ? req.body.exercises : []).filter((e) => Array.isArray(e.sets) && e.sets.length).map((e) => ({ id: e.id, name: e.name, sets: e.sets.length, reps: e.reps_spec || (e.sets[0]?.reps ?? 8) }));
+    await registerCatalog(used);
+    if (req.body?.notes && typeof req.body.notes === 'object') {
+      const notes = (await store.getSetting('exercise_notes')) || {};
+      for (const [id, v] of Object.entries(req.body.notes).slice(0, 40)) { const s = String(v || '').trim().slice(0, 400); if (s) notes[String(id).slice(0, 40)] = s; else delete notes[String(id).slice(0, 40)]; }
+      await store.setSetting('exercise_notes', notes);
+    }
     res.json({ ok: true, saved: rows.length });
   }));
   app.get('/api/strength/analysis', wrap(async (req, res) => {
