@@ -75,7 +75,7 @@ function lastLogsByExercise(strengthLog) {
 const clampN = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 /** Transparenter Erholungswert 0–100: Abzüge für HRV, Ruhepuls, Schlaf, Belastung, Anstrengung und Schmerz. */
-function recoveryScore({ rec, days, date, acwr, hardRpe, pain }) {
+function recoveryScore({ rec, days, date, acwr, hardRpe, pain, unfit }) {
   const latest = (k) => [...days].filter((d) => d.date <= date && Number.isFinite(d[k]) && diffDays(date, d.date) <= 3).sort((a, b) => b.date.localeCompare(a.date))[0];
   const parts = [];
   let pen = 0, any = false;
@@ -101,6 +101,7 @@ function recoveryScore({ rec, days, date, acwr, hardRpe, pain }) {
     parts.push({ key: 'load', label: 'Belastung', value: acwr.toFixed(2).replace('.', ','), status: acwr <= 1.3 ? 'good' : acwr <= 1.5 ? 'medium' : 'low' });
   }
   if (hardRpe) pen += 8;
+  if (unfit) { pen += 25; any = true; }
   if (pain) pen += Math.min(15, pain.level * 2);
   return { score: any ? Math.round(clampN(100 - pen, 0, 100)) : null, parts };
 }
@@ -119,8 +120,10 @@ export function readiness(ctx) {
   if (hard) signals.push({ id: 'R-RPE', text: `Letzter Lauf am ${hard.local_date} mit Anstrengung ${hard.rpe} von 10` });
   const pain = (ctx.pain || []).find((p) => diffDays(date, p.date) >= 0 && diffDays(date, p.date) <= 7 && p.level >= RULES.painThreshold);
   if (pain) signals.push({ id: 'R-PAIN', text: `Schmerz ${pain.level} von 10 gemeldet am ${pain.date}${pain.area ? ` (${pain.area})` : ''}` });
-  const level = signals.length >= 2 ? 'low' : signals.length === 1 ? 'medium' : 'good';
-  const rs = recoveryScore({ rec, days: ctx.days || [], date, acwr: ac.ratio, hardRpe: !!hard, pain });
+  const unfit = !!ctx.settings?._unfit?.[date];
+  if (unfit) signals.push({ id: 'R-SELF', text: 'Du hast dich heute als nicht fit gemeldet' });
+  const level = unfit || signals.length >= 2 ? 'low' : signals.length === 1 ? 'medium' : 'good';
+  const rs = recoveryScore({ rec, days: ctx.days || [], date, acwr: ac.ratio, hardRpe: !!hard, pain, unfit });
   return { level, score: rs.score, parts: rs.parts, signals, acwr: ac.ratio, acute: ac.acute * 7, chronicWeekly: ac.chronic * 7, form: ac.form, monotony: ac.monotony, hrv: { now: rec.hrvNow, mean: rec.hrvMean, sd: rec.hrvSd }, rhr: { now: rec.rhrNow, base: rec.rhrBase }, settings };
 }
 

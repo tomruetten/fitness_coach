@@ -4,7 +4,9 @@
   "private": true,
   "description": "Garmin-basierte Trainingsplan-App (Laufen, Kraft, Rad) – Vercel + Supabase",
   "type": "module",
-  "engines": { "node": "20.x || 22.x" },
+  "engines": {
+    "node": "20.x || 22.x"
+  },
   "scripts": {
     "dev": "node --watch server/dev.js",
     "start": "node server/dev.js",
@@ -17,6 +19,7 @@
     "@supabase/supabase-js": "^2.106.1",
     "express": "^4.21.2",
     "fflate": "^0.8.2",
-    "fit-file-parser": "^1.21.0"
+    "fit-file-parser": "^1.21.0",
+    "web-push": "^3.6.7"
   }
 }

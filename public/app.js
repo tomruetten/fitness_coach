@@ -54,7 +54,8 @@ const ZC = ['#A9C9FF', '#34C759', '#FFCC00', '#FF9500', '#FF3B30'];
 
 function pills(d) {
   const rd = d.readiness, p = d.plan;
-  const items = [p.block ? `${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}` : '', rd.acwr != null ? `Belastung ${dec(rd.acwr, 2)}` : '', p.provisional ? 'vorläufig' : ''].filter(Boolean);
+  const ts = d.training_status;
+  const items = [ts ? `<i class="sdot" style="background:${ts.color}"></i>${esc(ts.label)}` : '', p.block ? `${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}` : '', rd.acwr != null ? `Belastung ${dec(rd.acwr, 2)}` : '', p.provisional ? 'vorläufig' : ''].filter(Boolean);
   return items.length ? `<div class="pills">${items.map((x) => `<span class="pill mute">${x}</span>`).join('')}</div>` : '';
 }
 
@@ -76,6 +77,52 @@ function cockpit(d) {
   return `<div class="card cockpit">${ringHtml({ p: s != null ? s / 100 : 0, color, size: 108, sw: 10, center })}<div class="cp-text"><div class="cp-adv">${esc(advice(d))}</div>${parts ? `<div class="cp-parts">${parts}</div>` : ''}</div></div>`;
 }
 
+const PK = { easy: ['#34C759', 34, 'Locker'], rec: ['#A9C9FF', 20, 'Trab'], mar: ['#FFCC00', 52, 'Marathon'], thr: ['#FF9500', 72, 'Schwelle'], int: ['#FF3B30', 88, 'Intervall'], rep: ['#FF3B30', 100, 'Steigerung'] };
+/** Ablauf der Einheit als Treppenprofil: Breite = Dauer, Höhe = Intensität. */
+function profileChart(pr) {
+  if (!pr?.length) return '';
+  const tot = pr.reduce((s, x) => s + x.m, 0);
+  const kinds = [...new Set(pr.map((x) => x.k))].filter((k) => k !== 'rec' && PK[k]);
+  return `<div class="prof"><div class="pbars">${pr.map((x) => `<i style="flex:${x.m} 1 0;height:${(PK[x.k] || PK.easy)[1]}%;background:${(PK[x.k] || PK.easy)[0]}"></i>`).join('')}</div><div class="pax"><span>0</span><span>${Math.round(tot)} min</span></div>${kinds.length > 1 ? `<div class="plg">${kinds.map((k) => `<span><i style="background:${PK[k][0]}"></i>${PK[k][2]}</span>`).join('')}</div>` : ''}</div>`;
+}
+
+function wxCard(w) {
+  if (!w) return '';
+  return `<div class="card wx"><div class="wx-main"><div class="wx-t"><b>${w.temp}°</b><small>gefühlt ${w.feels}°</small></div><div class="wx-d"><span>Regen ${w.rain} %</span><span>Wind ${w.wind} km/h</span><span>${w.hour} Uhr</span></div></div>${w.tips.length ? `<ul class="why">${w.tips.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${w.dry_hours && w.rain >= 40 ? `<p class="fine">Trockenes Zeitfenster: ${w.dry_hours[0]}–${w.dry_hours[1]} Uhr</p>` : ''}</div>`;
+}
+async function loadWeather(date) {
+  const key = 'c_wx_' + date;
+  const show = (r) => { const el = $('#wx'); if (el && r?.weather) el.innerHTML = `<h2>Wetter</h2>${wxCard(r.weather)}`; };
+  const c = store.get(key); if (c && Date.now() - c.t < 30 * 60 * 1000) show(c.r);
+  try { const r = await api('/weather?date=' + date); store.set(key, { t: Date.now(), r }); show(r); } catch { /* Wetter ist optional */ }
+}
+
+/** Soll und Ist eines absolvierten Laufs mit Zonenanteilen und Kilometerzeiten (inkl. steigungskorrigiertem Tempo). */
+function sollIst(p, a, lthr) {
+  const t = p.targets || {};
+  const km = a.distance_m / 1000, pc = a.duration_s / km;
+  const tone = (ok) => (ok ? 'ok' : 'off');
+  const row = (l, plan, act, dl, ok) => `<div class="si-row"><span>${l}</span><span class="si-p">${plan || '–'}</span><b>${act}</b><em class="${tone(ok)}">${dl || ''}</em></div>`;
+  const sgn = (v, n, u) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${dec(Math.abs(v), n)} ${u}`;
+  const rows = [];
+  if (t.distance_km) rows.push(row('Distanz', `${dec(t.distance_km, 1)} km`, `${dec(km, 1)} km`, sgn(km - t.distance_km, 1, 'km'), Math.abs(km / t.distance_km - 1) <= 0.1));
+  else rows.push(row('Distanz', '', `${dec(km, 1)} km`, '', true));
+  rows.push(row('Dauer', t.duration_min ? `${t.duration_min} min` : '', hm(a.duration_s), '', true));
+  rows.push(row('Tempo /km', t.pace_s ? pace(t.pace_s) : '', pace(pc), t.pace_s ? sgn(pc - t.pace_s, 0, 's/km') : '', t.pace_s ? Math.abs(pc - t.pace_s) <= 8 : true));
+  const hrOk = a.avg_hr && (t.hr_to ? a.avg_hr <= t.hr_to + 3 && (!t.hr_from || a.avg_hr >= t.hr_from - 6) : true);
+  rows.push(row('Puls Ø bpm', t.hr_to ? `${t.hr_from ? t.hr_from + '–' : 'bis '}${t.hr_to}` : '', a.avg_hr ? `${Math.round(a.avg_hr)}` : '–', '', hrOk));
+  if (a.rpe != null) rows.push(row('Anstrengung', '', `${a.rpe} / 10`, '', true));
+  const zs = a.zone_s || [], zt = zs.reduce((x, y) => x + y, 0);
+  const zone = zt ? `<div class="si-zone"><div class="zb">${zs.map((s, i) => (s ? `<i style="flex:${s};background:${ZC[i]}"></i>` : '')).join('')}</div><div class="zt">${zs.map((s, i) => `<span>Z${i + 1} ${Math.round((s / zt) * 100)} %</span>`).join('')}</div></div>` : '';
+  const sp = (a.splits || []).filter((s) => s.pace_s);
+  let splits = '';
+  if (sp.length) {
+    const mn = Math.min(...sp.map((s) => s.pace_s)), mx = Math.max(...sp.map((s) => s.pace_s));
+    splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>GAP</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.gap_s && Math.abs(s.gap_s - s.pace_s) >= 3 ? pace(s.gap_s) : '–'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
+  }
+  return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${splits ? `<h2>Kilometer</h2><div class="card">${splits}</div>` : ''}`;
+}
+
 function runCard(d) {
   const p = d.plan, t = p.targets || {}, color = KIND_COLOR.running;
   const big = [];
@@ -89,7 +136,7 @@ function runCard(d) {
   }
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
   return `<div class="card hero" style="--a:${color}"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
-    ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${zone}
+    ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${profileChart(p.profile)}${zone}
     ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}</div>`;
 }
 function otherCard(d) {
@@ -103,6 +150,7 @@ function infoCard(d, collapsible = false) {
   const p = d.plan, rd = d.readiness, why = p.why || [];
   const adjusted = !!p.adjusted;
   const lines = why.length ? why.map((w) => w.text) : rd.signals?.length ? rd.signals.map((s) => s.text) : ['Erholung und Belastung liegen im Normalbereich.'];
+  if (collapsible && d.training_status) lines.unshift(`Trainingsstatus ${d.training_status.label}: ${d.training_status.text}`);
   const title = adjusted ? 'Heute angepasst' : why.length ? 'So wurde geplant' : 'Heute nicht angepasst';
   const ico = '<div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>';
   const list = `<ul class="why">${lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
@@ -157,14 +205,19 @@ function drawToday(d, stale) {
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d) + cockpit(d);
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
-  if (g === 'run') html += fitCard(d);
+  if (g === 'run') html += `<div id="wx"></div>` + fitCard(d);
   html += infoCard(d, true);
-  if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
-  html += `<button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>`;
+  if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}${d.done.some((a) => a.sport === 'running') ? '<button type="button" class="link" id="siBtn">Soll und Ist ansehen</button>' : ''}</div>`;
+  html += `<div class="subrow"><button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>${p.kind !== 'rest' ? `<button type="button" class="subtle" id="unfitBtn">${d.unfit ? 'Nicht fit zurücknehmen' : 'Heute nicht fit'}</button>` : ''}</div>`;
   app.innerHTML = html;
   $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
   play(app, 'today');
   $('#painBtn')?.addEventListener('click', () => openPain(d.date));
+  $('#siBtn')?.addEventListener('click', () => go('day', { date: d.date }));
+  $('#unfitBtn')?.addEventListener('click', async () => {
+    try { await api('/day/unfit', { on: !d.unfit }); ['c_today', 'c_week'].forEach((k) => store.del(k)); toast(d.unfit ? 'Zurückgenommen' : 'Einheit wird angepasst'); render(); } catch (e) { toast(e.message); }
+  });
+  if (g === 'run') loadWeather(d.date);
   bindStatus(app, d.date, () => render());
 }
 
@@ -202,6 +255,7 @@ async function viewDay(app, { date, nav }) {
     app.innerHTML = `<button type="button" class="back" data-act="back">${icon.back}Woche</button>
       <div class="head"><div class="eyebrow">${wd}${date === d.today ? ' · heute' : ''}</div><h1>${esc(nice(p.label).replace(/ \(.*/, '').split(' · ')[0])}</h1></div>
       ${g === 'run' ? runCard(fake) : otherCard(fake)}
+      ${g === 'run' && past && (p.done || []).some((a) => a.sport === 'running') ? sollIst(p, [...p.done].filter((a) => a.sport === 'running').sort((x, y) => y.distance_m - x.distance_m)[0], d.lthr) : ''}
       ${!past ? '<div class="card info"><div class="ico">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg></div><div><b>Vorläufig</b><p>Das ist der geplante Ablauf. Am Tag selbst passt die App die Einheit an deine Erholung an, etwa bei schlechtem Schlaf oder hoher Belastung.</p></div></div>' : ''}
       ${(p.why || []).length ? infoCard({ plan: p, readiness: { signals: [] } }) : ''}
 `;
@@ -222,6 +276,25 @@ let weekEdit = null; // {order:[Plan], sel:null|index} solange die Woche bearbei
 const GRIP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg>';
 const isDone = (p) => p.status === 'done' || (p.status !== 'skipped' && p.done?.length > 0);
 const RING = { open: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>', skipped: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>' };
+const SPC = { run: KIND_COLOR.running, strength: KIND_COLOR.strength, spin: KIND_COLOR.spinning, done: '#34C759' };
+function consCard(c, today) {
+  const cells = c.rows.flatMap((r) => r.cells).map((x) => {
+    const col = x.s.map((k) => SPC[k]);
+    const bg = col.length === 0 ? '' : col.length === 1 ? col[0] : `linear-gradient(135deg,${col[0]} 50%,${col[1]} 50%)`;
+    return `<i class="cc${x.future ? ' fut' : ''}${x.skip && !x.s.length ? ' skip' : ''}${x.date === today ? ' now' : ''}"${bg ? ` style="background:${bg}"` : ''} title="${x.date.slice(8, 10)}.${x.date.slice(5, 7)}."></i>`;
+  }).join('');
+  return `<h2>Konsistenz</h2><div class="card cons"><div class="cons-top"><div><b>${c.streak}</b><small>${c.streak === 1 ? 'Woche' : 'Wochen'} in Folge mit 3+ aktiven Tagen</small></div><div class="r"><b>${c.active_days}</b><small>aktive Tage in ${c.weeks} Wochen</small></div></div><div class="cgrid" style="grid-template-columns:repeat(${c.rows.length},1fr)">${cells}</div><div class="plg"><span><i style="background:${SPC.run}"></i>Laufen</span><span><i style="background:${SPC.strength}"></i>Kraft</span><span><i style="background:${SPC.spin}"></i>Spinning</span></div></div>`;
+}
+async function loadReview(todayIso) {
+  const open = [1, 2].includes(new Date(todayIso + 'T12:00').getDay()); // Montag und Dienstag
+  const show = (r) => {
+    const el = $('#rv'); if (!el || !r?.lines) return;
+    const stat = (v, l) => `<div><b>${v}</b><small>${l}</small></div>`;
+    el.innerHTML = `<details class="card fold review"${open ? ' open' : ''}><summary><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></div><b>Rückblick ${dm(r.monday)} – ${dm(r.to)}</b>${CHEV}</summary><div class="rv-body"><div class="rv-stats">${stat(dec(r.km, 1) + ' km', 'Umfang')}${stat(r.sessions_planned ? `${r.sessions_done}/${r.sessions_planned}` : String(r.runs), r.sessions_planned ? 'Einheiten' : 'Läufe')}${stat(r.easy_pct != null ? r.easy_pct + ' %' : '–', 'locker')}</div><ul class="why">${r.lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></details>`;
+  };
+  const c = store.get('c_review'); if (c) show(c);
+  try { const r = await api('/review'); store.set('c_review', r); show(r); } catch { /* Rückblick ist optional */ }
+}
 function drawWeek(d, stale) {
   const w = weekEdit ? weekEdit.order : d.week; // Tage (Datum) bleiben, Einheiten wandern
   const dates = d.week.map((p) => p.date);
@@ -235,6 +308,7 @@ function drawWeek(d, stale) {
   const anyMoved = d.week.some((p) => p.moved);
   app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">${dm(dates[0])} – ${dm(dates[6])}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div><button type="button" class="textbtn" id="wedit">${weekEdit ? 'Fertig' : 'Bearbeiten'}</button></div>
     ${weekEdit ? '<p class="foot edit-hint">Ziehe eine Einheit am Griff auf einen anderen Tag oder tippe zwei Tage nacheinander an, um sie zu tauschen. Spinning und vergangene Tage bleiben fest.</p>' : wk}
+    ${weekEdit ? '' : '<div id="rv"></div>'}
     <div class="days${weekEdit ? ' editing' : ''}" id="days">${w.map((p, i) => {
     const g = group(p.kind), t = p.targets || {}, today = dates[i] === d.today, rest = g === 'rest', lock = locked(p, i);
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
@@ -248,8 +322,9 @@ function drawWeek(d, stale) {
     const pv = rest || weekEdit || (!planV && !(actV > 0)) ? '' : actV > 0.05 ? `<div class="pv"><b style="color:${col}">${fmtV(actV)}</b><small>${planV ? `/ ${fmtV(planV)} ` : ''}${unit}</small></div>` : `<div class="pv plan${d.week[i].status === 'skipped' ? ' skip' : ''}"><b>${fmtV(planV)}</b><small>${unit}</small></div>`;
     return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>
+    ${!weekEdit && d.consistency ? consCard(d.consistency, d.today) : ''}
     ${weekEdit && (anyMoved || weekEdit.order.some((p, i) => p.date !== dates[i])) ? '<button type="button" class="link" id="wreset">Auf Standardwoche zurücksetzen</button>' : ''}`;
-  if (!weekEdit) play(app, 'week'); else rings(app, false);
+  if (!weekEdit) { play(app, 'week'); loadReview(d.today); } else rings(app, false);
   $$('.day[data-open]', app).forEach((r) => r.addEventListener('click', (ev) => {
     if (ev.target.closest('.ring')) return;
     if (r.dataset.kind) go('prep', { kind: r.dataset.kind }); else go('day', { date: r.dataset.open });
@@ -295,15 +370,37 @@ function drawWeek(d, stale) {
   }));
 }
 
+async function setupPush(pu) {
+  const box = $('#pushCard'); if (!box) return;
+  const info = (txt, btn) => { box.innerHTML = `<div class="muted" id="pushInfo">${txt}</div>${btn ? `<button class="sec" id="pushBtn">${btn}</button>` : ''}`; };
+  if (!pu?.ready) return info('Noch nicht eingerichtet: Auf dem Server fehlen die Push-Schlüssel (VAPID).');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return info('Auf diesem Gerät nicht verfügbar. Auf dem iPhone muss die App zum Home-Bildschirm hinzugefügt sein (iOS 16.4 oder neuer).');
+  const reg = await navigator.serviceWorker.ready;
+  const cur = await reg.pushManager.getSubscription();
+  info(cur ? 'Jeden Morgen kommt die Einheit des Tages mit deiner Erholung aufs Handy.' : 'Eine kurze Erinnerung am Morgen mit der heutigen Einheit.', cur ? 'Ausschalten' : 'Einschalten');
+  $('#pushBtn').onclick = async () => {
+    try {
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) { await api('/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); toast('Mitteilungen aus'); }
+      else {
+        if ((await Notification.requestPermission()) !== 'granted') throw new Error('Mitteilungen nicht erlaubt');
+        const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(b64u.dec(pu.key)) });
+        await api('/push/subscribe', { subscription: s.toJSON() }); toast('Mitteilungen an');
+      }
+      setupPush(pu);
+    } catch (e) { toast(e.message); }
+  };
+}
+
 async function viewMore(isCurrent = () => true) {
   const cached = store.get('c_more');
-  const load = () => Promise.all([api('/settings'), api('/auth/state')]).then(([s, st]) => ({ s, st }));
+  const load = () => Promise.all([api('/settings'), api('/auth/state'), api('/push/state').catch(() => null)]).then(([s, st, pu]) => ({ s, st, pu }));
   if (cached) draw(cached);
   else app.innerHTML = '<div class="head"><h1>Profil</h1></div><p class="muted center-text">Lädt …</p>';
   const fresh = await load();
   store.set('c_more', fresh);
   if (isCurrent() && JSON.stringify(fresh) !== JSON.stringify(cached) && !app.contains(document.activeElement && document.activeElement.matches('input') ? document.activeElement : null)) draw(fresh);
-  function draw({ s, st }) {
+  function draw({ s, st, pu }) {
     const g = s.goal || {};
     const ts = s.thresholdSuggestion;
     const sugg = ts && ts.lthr && ts.lthr !== s.lthr ? `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App einen neuen Schwellenpuls:</div><div class="kv"><div><small>Vorschlag</small><strong>${ts.lthr} bpm</strong></div><div><small>Aktuell</small><strong>${s.lthr} bpm</strong></div></div><button class="sec" id="applyTh">Übernehmen</button></div>` : '';
@@ -316,6 +413,7 @@ async function viewMore(isCurrent = () => true) {
       <div class="row"><span>Lockeres Tempo</span><input class="txt" id="ezp" style="width:90px;margin:0" value="${pace(s.easy_pace_s)}"></div>
       <button class="pri" id="saveS">Speichern</button></div>
     <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
+    <h2>Mitteilungen</h2><div class="card" id="pushCard"><div class="muted" id="pushInfo">Lädt …</div></div>
     <h2>Passkeys</h2><div class="card">${(st.passkeys || []).map((k) => `<div class="row"><span>${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10))}</span></div>`).join('')}<button class="sec" id="addPk">Dieses Gerät hinzufügen</button></div>
     <button class="sec" id="out">Abmelden</button>`;
     $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k)); render(); } catch (e) { toast(e.message); } });
@@ -329,6 +427,7 @@ async function viewMore(isCurrent = () => true) {
       catch (e) { $('#syncInfo').textContent = 'Fehler: ' + e.message; }
       $('#sync').disabled = $('#hist').disabled = false;
     };
+    setupPush(pu);
     $('#sync').onclick = () => doSync();
     $('#hist').onclick = () => doSync(new Date().getFullYear() + '-01-01');
     $('#addPk').onclick = async () => { try { await registerPasskey('', navigator.platform || 'Gerät'); toast('Passkey angelegt'); store.del('c_more'); render(); } catch (e) { toast(e.name === 'NotAllowedError' ? 'Abgebrochen' : e.message); } };

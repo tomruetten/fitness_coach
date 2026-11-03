@@ -92,7 +92,7 @@ export function qualityHistory(activities, fit, date, isLongDay) {
   for (const r of activities) {
     if (!isRun(r) || r.local_date >= date || diffDays(date, r.local_date) > 49) continue;
     if (r.duration_s > 75 * 60 || isLongDay(r.local_date)) continue;
-    const segs = r.best?.v === 2 ? r.best.segments || [] : null;
+    const segs = (r.best?.v ?? 0) >= 2 ? r.best.segments || [] : null;
     if (segs) {
       const hard = segs.filter((s) => s.pace_s <= p.threshold * 1.06 && s.dur_s >= 90);
       const tot = sum(hard.map((s) => s.dur_s));

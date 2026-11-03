@@ -48,7 +48,16 @@ export function buildQuality(q, fit, settings) {
     pace = p.test30;
   }
   steps.push({ label: 'Auslaufen', detail: `${CD_MIN} min locker` });
-  return { title, summary, steps, targets: { distance_km: round1(km), pace_s: pace, hr_from: settings._z4from, hr_to: settings.lthr }, structure: q };
+  const seg = (m, k, pace) => ({ m: Math.round(m * 100) / 100, k, pace_s: pace ? Math.round(pace) : null });
+  const rep = (n, w, wk, wp, rec) => Array.from({ length: n }, (_, i) => [seg(w, wk, wp), ...(i < n - 1 ? [seg(rec, 'rec', p.easy)] : [])]).flat();
+  const profile = [seg(WU_MIN, 'easy', p.easy)];
+  if (q.type === 'strides') profile.push(seg(q.easyMin, 'easy', p.easy), ...Array.from({ length: q.reps }, () => [seg(q.repS / 60, 'rep', p.rep), seg(1, 'rec', p.easy)]).flat());
+  else if (q.type === 'threshold') profile.push(...rep(q.reps, q.repMin, 'thr', p.threshold, q.recMin));
+  else if (q.type === 'tempo') profile.push(seg(q.workMin, 'thr', p.threshold));
+  else if (q.type === 'vo2') profile.push(...rep(q.reps, q.repMin, 'int', p.interval, q.recMin));
+  else profile.push(seg(30, 'thr', p.test30));
+  profile.push(seg(CD_MIN, 'easy', p.easy));
+  return { title, summary, steps, profile, targets: { distance_km: round1(km), pace_s: pace, hr_from: settings._z4from, hr_to: settings.lthr }, structure: q };
 }
 
 export function runEasy(minutes, fit, settings, why = 'Lockerer Lauf') {
@@ -57,6 +66,7 @@ export function runEasy(minutes, fit, settings, why = 'Lockerer Lauf') {
     title: why,
     summary: `Locker laufen, Puls im Z1/Z2-Bereich (bis ${settings._z2to} bpm). Das Gespräch muss möglich bleiben.`,
     steps: [{ label: 'Lockerer Dauerlauf', detail: `${minutes} min bei Puls bis ${settings._z2to} bpm` }],
+    profile: [{ m: minutes, k: 'easy', pace_s: fit.paces.easy }],
     targets: { duration_min: minutes, distance_km: round1(km), hr_to: settings._z2to },
   };
 }
@@ -72,6 +82,7 @@ export function runLong(km, finish, fit, settings, { scale = 1 } = {}) {
     title: `Langer Lauf ${total} km`,
     summary: fin && fin.km > 0 ? 'Ausdauer mit Endbeschleunigung: Schneller werden, wenn die Beine müde sind.' : 'Ausdauer: ruhig und gleichmäßig, Tempo nicht erzwingen.',
     steps,
+    profile: [{ m: Math.round(((total - (fin?.km || 0)) * fit.paces.easy) / 60), k: 'easy', pace_s: fit.paces.easy }, ...(fin && fin.km > 0 ? [{ m: Math.round((fin.km * fin.pace_s) / 60), k: fin.pace_s <= fit.paces.threshold + 8 ? 'thr' : 'mar', pace_s: fin.pace_s }] : [])],
     targets: { distance_km: total, duration_min: minutes, pace_s: fit.paces.easy, hr_from: settings._z2from, hr_to: settings._z2to },
   };
 }

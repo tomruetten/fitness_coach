@@ -14,6 +14,11 @@ import { addDays, weekDates, weekday } from './engine/dates.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
 import { timingSafeEqual } from 'crypto';
+import { trainingStatus } from './engine/status.js';
+import { weekReview, consistency } from './engine/review.js';
+import { forecast, adviceFor, defaultLocation } from './weather.js';
+import { pushReady, publicKey, sendAll } from './push.js';
+import { mondayOf } from './engine/dates.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s));
@@ -116,6 +121,23 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     res.json({ ok: true, added: total });
   }));
 
+  app.get('/api/cron/push', wrap(async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const given = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!secret || !safeEq(given, secret)) return res.status(401).json({ error: 'Nicht erlaubt' });
+    const subs = (await store.getSetting('push_subs')) || [];
+    if (!subs.length || !pushReady()) return res.json({ ok: true, sent: 0 });
+    const ctx = await loadContext(store);
+    const rd = readiness(ctx);
+    const plan = planDay(ctx, { rd });
+    const rest = plan.kind === 'rest';
+    const tail = rd.level === 'low' ? ' Dein Körper braucht Erholung, die Einheit ist entschärft.' : rd.level === 'medium' ? ' Leicht müde, achte auf den Puls.' : '';
+    const body = rest ? 'Heute ist Ruhetag. Gute Erholung!' : `${plan.title}${plan.targets?.distance_km && String(plan.kind).startsWith('run') ? ` · ${String(plan.targets.distance_km).replace('.', ',')} km` : ''}.${tail}`;
+    const r = await sendAll(subs, { title: rd.score != null ? `Heute · Erholung ${rd.score}` : 'Heute', body, url: '/' });
+    if (r.subs.length !== subs.length) await store.setSetting('push_subs', r.subs);
+    res.json({ ok: true, sent: r.sent });
+  }));
+
   app.use('/api', requireAuth);
 
   // ---- Daten -------------------------------------------------------------
@@ -129,7 +151,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
-    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history: vdotHistory(ctx, rd.settings) }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    const history = vdotHistory(ctx, rd.settings);
+    const tstatus = trainingStatus({ acwr: rd.acwr, history });
+    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -137,10 +161,60 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ctx = await loadContext(store, { date });
     const plans = planWeek({ ...ctx, today: ctx.today });
     const dates = weekDates(ctx.date);
-    const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, load: a.load })) }));
+    const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, max_hr: a.max_hr, load: a.load, ascent_m: a.ascent_m, rpe: a.rpe, te: a.te_aerobic, cad: a.avg_cadence, zone_s: a.zone_s, splits: a.sport === 'running' ? a.km_splits : undefined })) }));
     const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
     const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
-    res.json({ today: ctx.today, lthr: ctx.settings.lthr, target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
+    res.json({ today: ctx.today, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
+  }));
+
+  // Rückblick auf die letzte volle Woche (am Montag/Dienstag wird er oben in der Woche gezeigt).
+  app.get('/api/review', wrap(async (req, res) => {
+    const base = await loadContext(store);
+    const monday = addDays(mondayOf(base.today), -7);
+    const ctx = await loadContext(store, { date: addDays(monday, 6) });
+    const planned = planWeek({ ...ctx, today: ctx.today });
+    res.json({ ...weekReview({ activities: ctx.activities, days: ctx.days, settings: ctx.settings, monday, planned }), today: base.today });
+  }));
+
+  // Wetter für heute oder einen Tag der nächsten zwei Tage.
+  app.get('/api/weather', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const today = todayIn(settings.timezone);
+    const date = isDate(req.query.date) ? req.query.date : today;
+    try {
+      const hours = await forecast(settings.location || defaultLocation, settings.timezone);
+      res.json({ weather: adviceFor(hours, date) });
+    } catch { res.json({ weather: null }); }
+  }));
+
+  // „Heute nicht fit“: stuft die heutige Einheit herunter. Nur für den heutigen Tag.
+  app.post('/api/day/unfit', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const today = todayIn(settings.timezone);
+    const all = (await store.getSetting('unfit')) || {};
+    if (req.body?.on === false) delete all[today]; else all[today] = true;
+    for (const k of Object.keys(all)) if (k < addDays(today, -7)) delete all[k];
+    await store.setSetting('unfit', all);
+    res.json({ ok: true });
+  }));
+
+  // Push-Benachrichtigungen
+  app.get('/api/push/state', wrap(async (req, res) => {
+    const subs = (await store.getSetting('push_subs')) || [];
+    res.json({ ready: pushReady(), key: publicKey(), count: subs.length });
+  }));
+  app.post('/api/push/subscribe', wrap(async (req, res) => {
+    const s = req.body?.subscription;
+    if (!s?.endpoint || !s?.keys?.p256dh || !s?.keys?.auth || !/^https:\/\//.test(s.endpoint)) return res.status(400).json({ error: 'Abo ungültig' });
+    const subs = ((await store.getSetting('push_subs')) || []).filter((x) => x.endpoint !== s.endpoint);
+    subs.push({ endpoint: s.endpoint, keys: { p256dh: s.keys.p256dh, auth: s.keys.auth } });
+    await store.setSetting('push_subs', subs.slice(-5));
+    res.json({ ok: true });
+  }));
+  app.post('/api/push/unsubscribe', wrap(async (req, res) => {
+    const ep = req.body?.endpoint;
+    await store.setSetting('push_subs', ((await store.getSetting('push_subs')) || []).filter((x) => x.endpoint !== ep));
+    res.json({ ok: true });
   }));
 
   app.get('/api/activities', wrap(async (req, res) => {

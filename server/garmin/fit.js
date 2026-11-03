@@ -44,6 +44,7 @@ export function toSamples(records) {
       vo: r.vertical_oscillation ?? null,
       sl: r.step_length ?? null,
       pw: r.power ?? null,
+      alt: r.enhanced_altitude ?? r.altitude ?? null,
     });
   }
   return out;
@@ -150,6 +151,21 @@ export function decoupling(samples) {
   return { pct: Math.round(((e1 - e2) / e1) * 1000) / 10, steady: cv < 0.12 };
 }
 
+/** Höhenunterschied eines Abschnitts (m), geglättet über je 5 Messpunkte an Anfang und Ende. */
+function elevChange(seg) {
+  const a = seg.map((s) => s.alt).filter((v) => v != null);
+  if (a.length < 12) return null;
+  const m = (xs) => xs.reduce((x, y) => x + y, 0) / xs.length;
+  return m(a.slice(-5)) - m(a.slice(0, 5));
+}
+
+/** Steigungskorrigiertes Tempo (Minetti et al. 2002: Energiekosten des Laufens je Steigung g). */
+export function gapPace(paceS, grade) {
+  const g = Math.max(-0.15, Math.min(0.15, grade));
+  const cost = 155.4 * g ** 5 - 30.4 * g ** 4 - 43.3 * g ** 3 + 46.3 * g ** 2 + 19.5 * g + 3.6;
+  return paceS * (3.6 / cost);
+}
+
 export function kmSplits(samples) {
   const pts = samples.filter((s) => s.dist != null);
   if (!pts.length) return [];
@@ -166,9 +182,14 @@ export function kmSplits(samples) {
         const v = seg.map((s) => s[k]).filter((x) => x != null);
         return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
       };
+      const pace = (span / dist) * 1000;
+      const ele = elevChange(seg);
+      const gap = ele == null ? null : gapPace(pace, ele / dist);
       out.push({
         km: out.length + 1,
-        pace_s: Math.round((span / dist) * 1000),
+        pace_s: Math.round(pace),
+        gap_s: gap == null ? null : Math.round(gap),
+        ele: ele == null ? null : Math.round(ele),
         hr: Math.round(hr),
         cad: mean('cad') != null ? Math.round((mean('cad') + mean('frac')) * 2) : null,
         gct: mean('gct') != null ? Math.round(mean('gct')) : null,
@@ -182,7 +203,7 @@ export function kmSplits(samples) {
 
 /** Alles, was die Planung aus einem Lauf lernt. v=2 markiert die erweiterte Auswertung. */
 export function runAnalysis(samples) {
-  const best = { v: 2 };
+  const best = { v: 3 };
   for (const [k, min] of [['m5', 5], ['m10', 10], ['m20', 20], ['m30', 30], ['m60', 60]]) best[k] = bestEffort(samples, min * 60);
   best.segments = hardSegments(samples);
   best.drift = decoupling(samples);
