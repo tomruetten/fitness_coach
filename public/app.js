@@ -370,15 +370,19 @@ function drawWeek(d, stale) {
   }));
 }
 
-async function setupPush(pu) {
+async function setupPush(first) {
   const box = $('#pushCard'); if (!box) return;
-  const info = (txt, btn) => { box.innerHTML = `<div class="muted" id="pushInfo">${txt}</div>${btn ? `<button class="sec" id="pushBtn">${btn}</button>` : ''}`; };
-  if (!pu?.ready) return info('Noch nicht eingerichtet: Auf dem Server fehlen die Push-Schlüssel (VAPID).');
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return info('Auf diesem Gerät nicht verfügbar. Auf dem iPhone muss die App zum Home-Bildschirm hinzugefügt sein (iOS 16.4 oder neuer).');
+  const note = (txt) => { box.innerHTML = `<div class="muted" id="pushInfo">${txt}</div>`; };
+  let pu = first;
+  try { pu = await api('/push/state'); } catch { /* alten Stand zeigen */ }
+  if (!pu?.ready) return note('Noch nicht eingerichtet: Auf dem Server fehlen die Push-Schlüssel (VAPID).');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return note('Auf diesem Gerät nicht verfügbar. Auf dem iPhone muss die App zum Home-Bildschirm hinzugefügt sein (iOS 16.4 oder neuer).');
   const reg = await navigator.serviceWorker.ready;
   const cur = await reg.pushManager.getSubscription();
-  info(cur ? 'Jeden Morgen kommt die Einheit des Tages mit deiner Erholung aufs Handy.' : 'Eine kurze Erinnerung am Morgen mit der heutigen Einheit.', cur ? 'Ausschalten' : 'Einschalten');
-  $('#pushBtn').onclick = async () => {
+  const sw = (on, attr) => `<button type="button" class="sw${on ? ' on' : ''}" role="switch" aria-checked="${on}" ${attr}><i></i></button>`;
+  box.innerHTML = `<div class="nrow main"><div><b>Mitteilungen auf diesem Gerät</b><small>${cur ? 'Eingeschaltet' : 'Ausgeschaltet. Zum Empfangen hier einschalten.'}</small></div>${sw(!!cur, 'data-dev')}</div>
+    <div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
+  $('[data-dev]', box).onclick = async () => {
     try {
       const sub = await reg.pushManager.getSubscription();
       if (sub) { await api('/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); toast('Mitteilungen aus'); }
@@ -390,6 +394,11 @@ async function setupPush(pu) {
       setupPush(pu);
     } catch (e) { toast(e.message); }
   };
+  $$('[data-nid]', box).forEach((b) => b.addEventListener('click', async () => {
+    const on = !b.classList.contains('on');
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+    try { await api('/push/prefs', { id: b.dataset.nid, on }); } catch (e) { b.classList.toggle('on', !on); b.setAttribute('aria-checked', String(!on)); toast(e.message); }
+  }));
 }
 
 async function viewMore(isCurrent = () => true) {

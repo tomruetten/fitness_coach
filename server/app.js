@@ -17,7 +17,8 @@ import { timingSafeEqual } from 'crypto';
 import { trainingStatus } from './engine/status.js';
 import { weekReview, consistency } from './engine/review.js';
 import { forecast, adviceFor, defaultLocation } from './weather.js';
-import { pushReady, publicKey, sendAll } from './push.js';
+import { pushReady, publicKey } from './push.js';
+import { runNotifications, NOTIFICATIONS, getPrefs } from './notify.js';
 import { mondayOf } from './engine/dates.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -118,24 +119,18 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       total += r.added;
       if (r.done) break;
     }
-    res.json({ ok: true, added: total });
+    let notified = null;
+    try { notified = await runNotifications({ store }); } catch { /* Mitteilungen dürfen den Sync nicht stören */ }
+    res.json({ ok: true, added: total, notified });
   }));
 
-  app.get('/api/cron/push', wrap(async (req, res) => {
+  // Mitteilungen: prüft Zeitfenster und Bedingungen. Vercel ruft das abends auf; der Morgenversand hängt am Sync-Cron.
+  const syncOnce = async () => { const settings = await loadSettings(store); await runSync(garminClient(), store, { settings, maxNew: 6, deadlineMs: 20000 }); };
+  app.get('/api/cron/notify', wrap(async (req, res) => {
     const secret = process.env.CRON_SECRET;
     const given = String(req.headers.authorization || '').replace(/^Bearer /, '');
     if (!secret || !safeEq(given, secret)) return res.status(401).json({ error: 'Nicht erlaubt' });
-    const subs = (await store.getSetting('push_subs')) || [];
-    if (!subs.length || !pushReady()) return res.json({ ok: true, sent: 0 });
-    const ctx = await loadContext(store);
-    const rd = readiness(ctx);
-    const plan = planDay(ctx, { rd });
-    const rest = plan.kind === 'rest';
-    const tail = rd.level === 'low' ? ' Dein Körper braucht Erholung, die Einheit ist entschärft.' : rd.level === 'medium' ? ' Leicht müde, achte auf den Puls.' : '';
-    const body = rest ? 'Heute ist Ruhetag. Gute Erholung!' : `${plan.title}${plan.targets?.distance_km && String(plan.kind).startsWith('run') ? ` · ${String(plan.targets.distance_km).replace('.', ',')} km` : ''}.${tail}`;
-    const r = await sendAll(subs, { title: rd.score != null ? `Heute · Erholung ${rd.score}` : 'Heute', body, url: '/' });
-    if (r.subs.length !== subs.length) await store.setSetting('push_subs', r.subs);
-    res.json({ ok: true, sent: r.sent });
+    res.json({ ok: true, ...(await runNotifications({ store, sync: syncOnce })) });
   }));
 
   app.use('/api', requireAuth);
@@ -201,7 +196,16 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
   // Push-Benachrichtigungen
   app.get('/api/push/state', wrap(async (req, res) => {
     const subs = (await store.getSetting('push_subs')) || [];
-    res.json({ ready: pushReady(), key: publicKey(), count: subs.length });
+    const prefs = await getPrefs(store);
+    res.json({ ready: pushReady(), key: publicKey(), count: subs.length, types: NOTIFICATIONS.map((n) => ({ id: n.id, title: n.title, desc: n.desc, on: !!prefs[n.id] })) });
+  }));
+  app.post('/api/push/prefs', wrap(async (req, res) => {
+    const { id, on } = req.body || {};
+    if (!NOTIFICATIONS.some((n) => n.id === id) || typeof on !== 'boolean') return res.status(400).json({ error: 'Unbekannte Mitteilung' });
+    const prefs = await getPrefs(store);
+    prefs[id] = on;
+    await store.setSetting('notify_prefs', prefs);
+    res.json({ ok: true });
   }));
   app.post('/api/push/subscribe', wrap(async (req, res) => {
     const s = req.body?.subscription;
