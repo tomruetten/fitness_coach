@@ -159,7 +159,7 @@ export async function viewLog(app, { kind, blank, nav }) {
         <button type="button" class="tick${x[2] ? ' on' : ''}" data-d="${ei}.${si}" aria-pressed="${!!x[2]}" aria-label="Satz erledigt">${icon.check}</button></div>`;
   }).join('')}
       <div class="setbtns"><button type="button" class="addset" data-as="${ei}">${icon.plus}Satz hinzufügen</button>${e.sets.length > 1 ? `<button type="button" class="delset" data-ds="${ei}" aria-label="Letzten Satz entfernen">−</button>` : ''}</div>
-      <textarea class="note" data-note="${ei}" rows="2" placeholder="Notiz, z. B. Sitzeinstellung am Gerät" aria-label="Notiz zu ${esc(e.name)}">${esc(e.note)}</textarea>
+      <textarea class="memo" data-note="${ei}" rows="2" placeholder="Notiz, z. B. Sitzeinstellung am Gerät" aria-label="Notiz zu ${esc(e.name)}">${esc(e.note)}</textarea>
       ${picking?.mode === 'replace' && picking.ei === ei ? pickerHtml(cat, ids(), 'Ersetzen durch') : `<div class="exacts"><button type="button" data-rep="${ei}">Ersetzen</button><button type="button" class="danger" data-del="${ei}">${armed === ei ? 'Wirklich entfernen?' : 'Entfernen'}</button></div>`}</div>` : ''}</section>`;
   }).join('')}
     ${picking?.mode === 'add' ? pickerHtml(cat, ids(), 'Übung hinzufügen') : `<button type="button" class="addbtn" data-act="add">${icon.plus}Übung hinzufügen</button>`}

@@ -107,7 +107,7 @@ nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width
 .fld{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)}.addrow .fld .txt{width:100%}.addrow .txt:nth-child(1),.addrow .txt:nth-child(2){width:100%}
 .chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mute2)}.chk input{width:20px;height:20px;accent-color:var(--purple)}
 .pbtns{display:flex;align-items:center;gap:12px}.pbtns .cta.small{background:var(--purple)}
-.note{width:100%;margin-top:10px;padding:10px 12px;border:0;border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px;resize:vertical}
+.memo{width:100%;margin-top:10px;padding:10px 12px;border:0;border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px;resize:vertical}
 .exacts{display:flex;gap:8px;margin-top:10px}.exacts button{flex:1;height:38px;border:0;border-radius:12px;background:var(--bg);color:var(--mute2);font-size:14px;font-weight:600}.exacts .danger{color:var(--bad)}
 .emptyhint{text-align:center;padding:22px 18px}
 .bar-fixed.two{display:flex;flex-direction:column;gap:4px;padding-top:12px}.bar-fixed.two .link{padding:4px;font-size:14px}
@@ -139,3 +139,57 @@ nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width
 .picker .cta.small,.pbtns .cta.small{background:var(--acc)}
 .chk input{accent-color:var(--acc)}
 .pbar div{background:var(--acc)}
+
+/* ===== Liquid Glass ===== */
+:root{--glass:rgba(255,255,255,.58);--glass-strong:rgba(255,255,255,.74);--glass-line:rgba(255,255,255,.78);--glass-shadow:0 10px 30px rgba(40,50,90,.10),0 1px 2px rgba(40,50,90,.06);--tint:rgba(118,118,128,.13)}
+html{background:#EEF0F6}
+body{background:linear-gradient(180deg,#F7F1EC 0%,#EEF0F7 55%,#EAEFF9 100%);min-height:100vh}
+body::before{content:"";position:fixed;inset:-20% -20% auto -20%;height:70vh;z-index:-1;pointer-events:none;background:radial-gradient(40% 50% at 18% 30%,rgba(255,138,76,.30),transparent 70%),radial-gradient(38% 46% at 82% 18%,rgba(175,82,222,.20),transparent 70%),radial-gradient(45% 50% at 60% 70%,rgba(10,132,255,.16),transparent 70%)}
+body::after{content:"";position:fixed;inset:auto -20% -15% -20%;height:50vh;z-index:-1;pointer-events:none;background:radial-gradient(45% 50% at 25% 60%,rgba(10,132,255,.16),transparent 70%),radial-gradient(40% 45% at 80% 70%,rgba(255,138,76,.18),transparent 70%)}
+.card,.ccard,.kpi,.pill,.day,.prog3,.info,.addbtn,.chips button,.sheet{background:var(--glass);-webkit-backdrop-filter:blur(26px) saturate(180%);backdrop-filter:blur(26px) saturate(180%);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow),inset 0 1px 0 rgba(255,255,255,.9)}
+.card,.ccard,.ex{border-radius:26px}.hero{border-radius:30px}
+.kpi,.day,.info,.addbtn{border-radius:22px}
+.chips button.on{background:var(--acc);border-color:transparent;color:#fff}
+.seg{background:rgba(120,120,128,.16);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.5);padding:3px}
+.seg button.on{background:var(--glass-strong);box-shadow:0 2px 8px rgba(40,50,90,.14),inset 0 1px 0 #fff}
+.lines,.line,.xrow,.hrow,.row,.setrow,.sethead{border-color:rgba(60,60,67,.10)}
+.grid{border-top-color:rgba(60,60,67,.10)}
+.step,.mini,.reps,.sel,.txt,.memo,input.txt,.exacts button,.delset,.pain button,button.sec,.prog,.pt{background:var(--tint)}
+.prog.full{background:var(--good)}
+.band{background:rgba(52,199,89,.16)}
+.dot{background:#fff}
+.day.today{box-shadow:var(--glass-shadow),inset 0 0 0 2px var(--acc)}
+.day.sel{box-shadow:var(--glass-shadow),inset 0 0 0 2px var(--acc)}
+.tbadge,.dbadge.neu{background:rgba(255,107,44,.14)}
+.dbadge.up,.addset{background:rgba(175,82,222,.14)}
+.cta{box-shadow:0 8px 20px rgba(255,107,44,.30),inset 0 1px 0 rgba(255,255,255,.35)}
+.cta.purple{box-shadow:0 8px 20px rgba(175,82,222,.28),inset 0 1px 0 rgba(255,255,255,.35)}
+.cta.ghost{box-shadow:none;background:var(--tint)}
+.cta:disabled{box-shadow:none}
+.tick{background:rgba(255,255,255,.5)}.tick.on{background:var(--good)}
+/* Schwebende Tab-Leiste */
+nav#tabs{left:16px;right:16px;bottom:calc(10px + env(safe-area-inset-bottom));max-width:440px;margin:0 auto;height:66px;padding:6px;gap:2px;border-radius:34px;border:1px solid var(--glass-line);background:rgba(255,255,255,.52);-webkit-backdrop-filter:blur(30px) saturate(200%);backdrop-filter:blur(30px) saturate(200%);box-shadow:0 14px 36px rgba(40,50,90,.18),0 2px 6px rgba(40,50,90,.08),inset 0 1px 0 rgba(255,255,255,.95)}
+nav#tabs button{border-radius:28px;gap:2px;justify-content:center;transition:background .2s,color .2s}
+nav#tabs button.on{background:rgba(255,255,255,.78);box-shadow:0 2px 10px rgba(40,50,90,.12),inset 0 1px 0 #fff}
+nav button svg{width:24px;height:24px}
+#app{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+/* Fußleisten (Vorlage, Kraft) schweben ebenfalls */
+.bar-fixed,.bar-fixed.two{left:16px;right:16px;bottom:calc(10px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;padding:12px;border-radius:30px;border:1px solid var(--glass-line);background:rgba(255,255,255,.58);-webkit-backdrop-filter:blur(30px) saturate(200%);backdrop-filter:blur(30px) saturate(200%);box-shadow:0 14px 36px rgba(40,50,90,.16),inset 0 1px 0 rgba(255,255,255,.95)}
+.bar-fixed .cta{height:52px;border-radius:22px}.bar-fixed.two .cta.ghost{height:44px;border-radius:18px}
+#app.sub{padding-bottom:calc(200px + env(safe-area-inset-bottom))}
+#toast{bottom:calc(96px + env(safe-area-inset-bottom));background:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+/* Unauffälliger Schmerz-Knopf und Popup */
+.subtle{align-self:center;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:0;border-radius:99px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;margin-top:4px}
+.subtle:active{background:var(--tint)}
+.sheet-wrap{position:fixed;inset:0;z-index:30;display:flex;align-items:flex-end;justify-content:center;pointer-events:none}
+.sheet-wrap.open{pointer-events:auto}
+.sheet-bg{position:absolute;inset:0;background:rgba(20,22,30,.28);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transition:opacity .25s}
+.sheet-wrap.open .sheet-bg{opacity:1}
+.sheet{position:relative;width:100%;max-width:520px;margin:0 12px calc(12px + env(safe-area-inset-bottom));padding:12px 20px 20px;border-radius:32px;background:rgba(255,255,255,.78);display:flex;flex-direction:column;gap:12px;transform:translateY(30px);opacity:0;transition:transform .28s cubic-bezier(.2,.9,.3,1),opacity .25s}
+.sheet-wrap.open .sheet{transform:none;opacity:1}
+.sheet h3{margin:0;font-size:20px;letter-spacing:-.02em}.sheet p{margin:0;font-size:14px;line-height:19px}
+.grabber{width:38px;height:5px;border-radius:3px;background:rgba(60,60,67,.25);align-self:center}
+.sheet .pain{margin:4px 0 0;gap:8px}.sheet .pain button{height:46px;font-size:17px;border-radius:14px;padding:0}
+.sheet .txt{height:50px;border-radius:14px;padding:0 16px;font-size:16px}
+.sheet .txt[hidden]{display:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.ccard,.kpi,.pill,.day,.prog3,.info,.addbtn,.chips button,.sheet,nav#tabs,.bar-fixed{background:rgba(255,255,255,.92)}}

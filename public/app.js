@@ -96,14 +96,33 @@ function drawToday(d, stale) {
     const s = d.thresholdSuggestion;
     html += `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App:</div><div class="kv">${s.lthr ? `<div><small>Schwellenpuls</small><strong>${s.lthr}</strong></div>` : ''}${s.lt_pace_s ? `<div><small>Schwellentempo</small><strong>${pace(s.lt_pace_s)}</strong></div>` : ''}</div><button class="sec" id="applyTh">Übernehmen</button></div>`;
   }
-  html += `<h2>Schmerz melden</h2><div class="card"><div class="muted">Optional. Ab 4 von 10 werden belastende Übungen ersetzt.</div><div class="pain">${[0, 2, 4, 6, 8].map((n) => `<button data-pain="${n}">${n}</button>`).join('')}</div></div>`;
+  html += `<button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>`;
   app.innerHTML = html;
   $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
   $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); render(); } catch (e) { toast(e.message); } });
-  $$('[data-pain]', app).forEach((b) => b.addEventListener('click', async () => {
-    const area = Number(b.dataset.pain) >= 4 ? (prompt('Wo? (z. B. Knie, Achillessehne)') || null) : null;
-    try { await api('/pain', { level: Number(b.dataset.pain), area, date: d.date }); $$('button', b.parentNode).forEach((x) => x.classList.toggle('on', x === b)); toast('Notiert'); } catch (e) { toast(e.message); }
+  $('#painBtn')?.addEventListener('click', () => openPain(d.date));
+}
+
+function openPain(date) {
+  let level = null;
+  const el = document.createElement('div');
+  el.className = 'sheet-wrap';
+  el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Schmerz melden"><div class="grabber"></div><h3>Schmerz melden</h3><p class="muted">Wie stark ist der Schmerz gerade? Ab 4 von 10 ersetzt die App belastende Übungen.</p>
+    <div class="pain">${[0, 2, 4, 6, 8, 10].map((n) => `<button type="button" data-lv="${n}">${n}</button>`).join('')}</div>
+    <input class="txt" id="painArea" placeholder="Wo? z. B. Knie, Achillessehne" autocomplete="off" hidden>
+    <button type="button" class="cta" id="painSave" disabled>Speichern</button><button type="button" class="link" id="painCancel">Abbrechen</button></div>`;
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('open'));
+  const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
+  $('.sheet-bg', el).onclick = close; $('#painCancel', el).onclick = close;
+  $$('[data-lv]', el).forEach((b) => b.addEventListener('click', () => {
+    level = Number(b.dataset.lv);
+    $$('[data-lv]', el).forEach((x) => x.classList.toggle('on', x === b));
+    $('#painArea', el).hidden = level < 4; $('#painSave', el).disabled = false;
   }));
+  $('#painSave', el).onclick = async () => {
+    try { await api('/pain', { level, area: level >= 4 ? ($('#painArea', el).value.trim() || null) : null, date }); toast('Notiert'); close(); } catch (e) { toast(e.message); }
+  };
 }
 
 // ---- Woche -----------------------------------------------------------------
