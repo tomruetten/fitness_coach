@@ -382,17 +382,31 @@ async function setupPush(first) {
   const sw = (on, attr) => `<button type="button" class="sw${on ? ' on' : ''}" role="switch" aria-checked="${on}" ${attr}><i></i></button>`;
   box.innerHTML = `<div class="nrow main"><div><b>Mitteilungen auf diesem Gerät</b><small>${cur ? 'Eingeschaltet' : 'Ausgeschaltet. Zum Empfangen hier einschalten.'}</small></div>${sw(!!cur, 'data-dev')}</div>
     <div class="ntypes${cur ? '' : ' off'}">${pu.types.map((n) => `<div class="nrow"><div><b>${esc(n.title)}</b><small>${esc(n.desc)}</small></div>${sw(n.on, `data-nid="${esc(n.id)}"`)}</div>`).join('')}</div>`;
-  $('[data-dev]', box).onclick = async () => {
+  // Schalter reagiert sofort (optimistisch); Abo-Arbeit läuft im Hintergrund, kein Neuaufbau der Karte
+  const dev = $('[data-dev]', box), devSub = $('.nrow.main small', box), types = $('.ntypes', box);
+  const paint = (on) => {
+    dev.classList.toggle('on', on); dev.setAttribute('aria-checked', String(on));
+    types.classList.toggle('off', !on);
+    devSub.textContent = on ? 'Eingeschaltet' : 'Ausgeschaltet. Zum Empfangen hier einschalten.';
+  };
+  let busy = false;
+  dev.onclick = async () => {
+    if (busy) return;
+    busy = true;
+    const want = !dev.classList.contains('on');
+    paint(want);
     try {
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) { await api('/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); toast('Mitteilungen aus'); }
-      else {
+      if (!want) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) { await api('/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+        toast('Mitteilungen aus');
+      } else {
         if ((await Notification.requestPermission()) !== 'granted') throw new Error('Mitteilungen nicht erlaubt');
         const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(b64u.dec(pu.key)) });
         await api('/push/subscribe', { subscription: s.toJSON() }); toast('Mitteilungen an');
       }
-      setupPush(pu);
-    } catch (e) { toast(e.message); }
+    } catch (e) { paint(!want); toast(e.message); }
+    busy = false;
   };
   $$('[data-nid]', box).forEach((b) => b.addEventListener('click', async () => {
     const on = !b.classList.contains('on');
