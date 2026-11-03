@@ -5,8 +5,9 @@ import { getStore } from './db/index.js';
 import { clearSessionCookie, isAuthed, requireAuth, requireJsonHeader, setSessionCookie } from './auth/session.js';
 import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } from './auth/passkeys.js';
 import { loadContext, loadSettings, todayIn } from './context.js';
-import { planDay, planWeek, readiness } from './engine/planner.js';
+import { planningContext, planDay, planWeek, readiness } from './engine/planner.js';
 import { estimateThreshold } from './engine/threshold.js';
+import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
 import { sessionFor, strengthAnalysis, exerciseInfo, exerciseCatalog } from './engine/strength.js';
 import { addDays, weekDates, weekday } from './engine/dates.js';
@@ -21,6 +22,8 @@ const safeEq = (a, b) => { const x = Buffer.from(String(a)); const y = Buffer.fr
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 /** @param {{store?:object, garmin?:()=>GarminClient, serveStatic?:boolean}} o */
+const fitnessOut = ({ lthr, ...f }) => f;
+
 export function createApp({ store = getStore(), garmin = null, serveStatic = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
@@ -111,10 +114,11 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const plan = planDay(ctx, { rd });
     const done = ctx.activities.filter((a) => a.local_date === ctx.date);
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
+    const pc = planningContext(ctx, rd.settings, rd);
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
-    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, thresholdSuggestion: Object.keys(est.suggestion).length ? { ...est.suggestion, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, fitness: fitnessOut(pc.fit), cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -282,10 +286,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ctx = await loadContext(store);
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
     const saved = (await store.getSetting('settings')) || {};
-    const next = { ...saved, ...est.suggestion };
-    if (est.easyPace) next.easy_pace_s = est.easyPace;
-    await store.setSetting('settings', next);
-    res.json({ ok: true, applied: { ...est.suggestion, ...(est.easyPace ? { easy_pace_s: est.easyPace } : {}) } });
+    const applied = est.suggestion.lthr ? { lthr: est.suggestion.lthr } : {};
+    await store.setSetting('settings', { ...saved, ...applied });
+    res.json({ ok: true, applied });
   }));
 
   app.post('/api/strength/log', wrap(async (req, res) => {

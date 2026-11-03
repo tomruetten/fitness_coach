@@ -8,13 +8,18 @@ const AVG = { week: 'Ø Woche', month: 'Ø 5 Wochen', year: 'Ø Jahr' };
 const val = (v, f = String) => (v == null ? '–' : f(v));
 
 function runCharts(d) {
-  d = { cad: [], avg: {}, ...d };
+  d = { cad: [], vdot: [], hm: [], avg: {}, ...d };
   const a = d.avg || {}, al = AVG[d.range];
   const kmAx = barAxis(Math.max(...d.km.map((v) => v || 0)));
   const z2Ax = lineAxis(d.z2, 10), gctAx = lineAxis(d.gct, 10), cadAx = lineAxis(d.cad || [], 5);
   const acMax = Math.max(...d.acwr.map((v) => v || 0));
   const acAx = acMax > 2 ? { min: 0, max: 3, ticks: [0, 1, 2, 3] } : { min: 0, max: 2, ticks: [0, 0.5, 1, 1.5, 2] };
+  const f = d.fitness || {};
+  const hms = (s) => `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
+  const vAx = lineAxis(d.vdot || [], 1), hAx = lineAxis(d.hm || [], 120);
   return [
+    f.vdot ? chartCard({ names: d.names, title: 'Leistungsstand (VDOT)', type: 'line', labels: d.labels, vals: d.vdot || [], ...vAx, fmt: (v) => dec(v, 0), tipFmt: (v) => dec(v, 1), color: '#FF6B2C', big: dec(f.vdot, 1), unit: '', avgLabel: 'aktuell', hint: 'Effektive Sauerstoffaufnahme nach Daniels, berechnet aus deinen härtesten Läufen und dem Verhältnis von Tempo zu Puls. Alle Trainingstempi leiten sich daraus ab.' }) : '',
+    f.vdot ? chartCard({ names: d.names, title: 'Halbmarathon-Prognose', type: 'line', labels: d.labels, vals: d.hm || [], ...hAx, invert: true, fmt: hms, tipFmt: (v) => hms(v) + ':' + String(Math.round(v % 60)).padStart(2, '0'), color: '#AF52DE', big: hms(f.predictions.hm) + ' h', unit: '', avgLabel: 'aktuell', hint: 'Zeit, die dein aktueller Leistungsstand für 21,1 km hergibt, wenn du ausgeruht und vorbereitet an den Start gehst.' }) : '',
     chartCard({ names: d.names, title: 'Laufumfang', type: 'bars', labels: d.labels, vals: d.km, ...kmAx, fmt: (v) => String(v), tipFmt: (v) => dec(v, 1), color: '#FF6B2C', big: dec(sum(d.km), d.range === 'week' ? 1 : 0), unit: 'km', avgLabel: 'gesamt', hint: 'Aufbau in Schritten von höchstens 10 % pro Woche.' }),
     chartCard({ names: d.names, title: 'Intensitätsverteilung', type: 'stack', labels: d.labels, vals: d.zones, min: 0, max: 100, ticks: [0, 50, 100], fmt: (v) => v + ' %', ref: { v: 80, c: '#8E8E93', t: 'Ziel 80 %' }, legend: ZONE_COLORS.map((c, i) => ({ t: 'Z' + (i + 1), c })), big: val(d.z12), unit: '% in Z1–Z2', avgLabel: al, hint: 'Mindestens 80 % locker laufen, Z3 bewusst klein halten.' }),
     chartCard({ names: d.names, title: 'Tempo bei Z2-Puls', type: 'line', labels: d.labels, vals: d.z2, ...z2Ax, invert: true, fmt: pace, color: '#0A84FF', big: val(a.z2, pace), unit: 'min/km', avgLabel: al, hint: 'Schneller bei gleichem Puls heißt bessere Grundlage.' }),

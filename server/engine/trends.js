@@ -2,6 +2,7 @@ import { addDays, diffDays } from './dates.js';
 import { acuteChronic } from './load.js';
 import { zoneBounds } from './zones.js';
 import { buckets } from './buckets.js';
+import { fitnessState } from './fitness.js';
 
 const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -10,7 +11,7 @@ const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
 /** Zeitraum, den die Datenbank für `range` laden muss. */
 export function trendsWindow(range, date) {
   const { list } = buckets(range, date);
-  return { from: addDays(list[0].from, -30), days: [addDays(list[0].from, 0), addDays(date, -60)].sort()[0] };
+  return { from: addDays(list[0].from, -100), days: [addDays(list[0].from, 0), addDays(date, -60)].sort()[0] };
 }
 
 export function trends(ctx, range = 'month') {
@@ -20,7 +21,7 @@ export function trends(ctx, range = 'month') {
   const isRun = (a) => a.sport === 'running' && a.distance_m > 1500;
 
   const minRunsForPace = range === 'week' ? 1 : 2;
-  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [], sleep: [], bb: [], stress: [] };
+  const out = { range, sub, labels: list.map((b) => b.label), names: list.map((b) => b.name), future: list.map((b) => b.future), km: [], zones: [], z2: [], hrv: [], rhr: [], acwr: [], gct: [], cad: [], sleep: [], bb: [], stress: [], vdot: [], hm: [] };
   // Normalbereich: Mittel ± 1 Standardabweichung der Tageswerte der letzten 60 Tage
   const band = (key) => {
     const v = days.filter((d) => d.date > addDays(date, -60) && d.date <= date).map((d) => d[key]).filter(Number.isFinite);
@@ -34,7 +35,7 @@ export function trends(ctx, range = 'month') {
   let runs = 0, km = 0, time = 0;
 
   for (const b of list) {
-    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); out.cad.push(null); out.sleep.push(null); out.bb.push(null); out.stress.push(null); continue; }
+    if (b.future) { out.km.push(null); out.zones.push(null); out.z2.push(null); out.hrv.push(null); out.rhr.push(null); out.acwr.push(null); out.gct.push(null); out.cad.push(null); out.sleep.push(null); out.bb.push(null); out.stress.push(null); out.vdot.push(null); out.hm.push(null); continue; }
     const inB = activities.filter((a) => a.local_date >= b.from && a.local_date <= b.to);
     const rs = inB.filter(isRun);
     const bKm = rs.reduce((a, r) => a + r.distance_m, 0) / 1000;
@@ -62,6 +63,9 @@ export function trends(ctx, range = 'month') {
     out.stress.push(sr.length ? Math.round(mean(sr)) : null);
 
     const end = b.to > date ? date : b.to;
+    const fs = fitnessState({ activities: activities.filter((a) => a.local_date <= end), days: days.filter((d) => d.date <= end), settings, asOf: end });
+    out.vdot.push(fs.source === 'läufe' ? fs.vdot : null);
+    out.hm.push(fs.source === 'läufe' ? fs.predictions.hm : null);
     const ac = acuteChronic(activities.filter((a) => a.local_date <= end), end);
     out.acwr.push(ac.ratio == null ? null : Math.round(ac.ratio * 100) / 100);
 
@@ -84,6 +88,7 @@ export function trends(ctx, range = 'month') {
     gct: avgOf(wa.map((r) => r.gct_ms)), cad: avgOf(wa.map((r) => (r.avg_cadence > 100 ? r.avg_cadence : NaN))),
     acwr: avgOf(out.acwr, (v) => Math.round(v * 100) / 100),
   };
+  out.fitness = (() => { const { lthr, ...f } = fitnessState({ activities, days, settings, asOf: date }); return f; })();
   const tz = total.reduce((a, c) => a + c, 0);
   out.z12 = tz ? Math.round(((total[0] + total[1]) / tz) * 100) : null;
   out.kpis = { runs, km: r1(km), time_s: Math.round(time) };

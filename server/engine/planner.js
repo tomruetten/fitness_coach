@@ -2,11 +2,14 @@
 // Eingabe sind Einstellungen, Aktivitäten, Tageswerte und Kraft-Log. Ausgabe ist die Einheit samt Begründung.
 import { DEFAULT_SETTINGS, RULES } from './config.js';
 import { addDays, diffDays, mondayOf, weekday, weekDates, WEEKDAYS } from './dates.js';
-import { blockFor, BLOCK_LABEL } from './blocks.js';
-import { acuteChronic } from './load.js';
+import { loadModel } from './load.js';
 import { recoveryState } from './recovery.js';
-import { zoneBounds } from './zones.js';
-import { longRunKm, runEasy, runLong, runQuality, strengthSession } from './sessions.js';
+import { zoneBounds, fmtPace } from './zones.js';
+import { buildQuality, runEasy, runLong, strengthSession } from './sessions.js';
+import { fitnessState } from './fitness.js';
+import { planLong, planQuality, weeklyPlan } from './progression.js';
+
+export const BLOCK_LABEL = { basis: 'Basis', aufbau: 'Aufbau' };
 
 export function withDefaults(settings = {}) {
   const s = { ...DEFAULT_SETTINGS, ...settings, goal: { ...DEFAULT_SETTINGS.goal, ...(settings.goal || {}) }, week: { ...DEFAULT_SETTINGS.week, ...(settings.week || {}) } };
@@ -73,7 +76,7 @@ export function readiness(ctx) {
   const settings = withDefaults(ctx.settings);
   const date = ctx.date;
   const rec = recoveryState(ctx.days || [], date);
-  const ac = acuteChronic(ctx.activities || [], date);
+  const ac = loadModel(ctx.activities || [], date);
   const signals = [...rec.signals];
   if (ac.ratio != null && ac.ratio > RULES.acwrHigh) {
     signals.push({ id: 'R-LOAD', text: `Belastung der letzten 7 Tage ist ${ac.ratio.toFixed(2)}-mal so hoch wie dein Schnitt` });
@@ -84,7 +87,17 @@ export function readiness(ctx) {
   const pain = (ctx.pain || []).find((p) => diffDays(date, p.date) >= 0 && diffDays(date, p.date) <= 7 && p.level >= RULES.painThreshold);
   if (pain) signals.push({ id: 'R-PAIN', text: `Schmerz ${pain.level} von 10 gemeldet am ${pain.date}${pain.area ? ` (${pain.area})` : ''}` });
   const level = signals.length >= 2 ? 'low' : signals.length === 1 ? 'medium' : 'good';
-  return { level, signals, acwr: ac.ratio, acute: ac.acute, chronicWeekly: ac.chronicWeekly, hrv: { now: rec.hrvNow, mean: rec.hrvMean, sd: rec.hrvSd }, rhr: { now: rec.rhrNow, base: rec.rhrBase }, settings };
+  return { level, signals, acwr: ac.ratio, acute: ac.acute * 7, chronicWeekly: ac.chronic * 7, form: ac.form, monotony: ac.monotony, hrv: { now: rec.hrvNow, mean: rec.hrvMean, sd: rec.hrvSd }, rhr: { now: rec.rhrNow, base: rec.rhrBase }, settings };
+}
+
+/** Alles, was für die Läufe einer Woche gleich bleibt: Leistungsstand und Wochenumfang/Zyklus. */
+export function planningContext(ctx, settings, rd) {
+  const today = ctx.today || ctx.date;
+  const asOf = ctx.date > today ? today : ctx.date;
+  const fit = fitnessState({ activities: ctx.activities || [], days: ctx.days || [], settings, asOf });
+  const wp = weeklyPlan(ctx.activities || [], ctx.date, { level: rd?.level || 'good', acwr: rd?.acwr ?? null });
+  const block = { name: wp.deload || wp.c === 1 ? 'basis' : 'aufbau', week: wp.c, deload: wp.deload };
+  return { fit, wp, block };
 }
 
 /**
@@ -96,17 +109,20 @@ export function planDay(ctx, opts = {}) {
   const settings = withDefaults(ctx.settings);
   const date = ctx.date;
   const acts = ctx.activities || [];
-  const block = blockFor(date, settings);
   const wd = weekday(date);
   const slot = slotOf(settings, date);
   const why = [];
   const rd = opts.provisional ? { level: 'good', signals: [], acwr: null } : opts.rd || readiness({ ...ctx, settings });
   const level = rd.level;
+  const pc = opts.pc || planningContext(ctx, settings, rd);
+  const { fit, wp, block } = pc;
   const base = { date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional, moved: !!settings._ov?.[date] && settings._ov[date] !== (settings.week[wd]?.kind || 'rest') };
 
-  if (block.deload) why.push({ rule: 'R-DELOAD', text: `Entlastungswoche im ${BLOCK_LABEL[block.name]}-Block: Umfang etwa 20 % niedriger` });
   const loadHigh = rd.signals?.some((s) => s.id === 'R-LOAD');
   const scaleWeek = block.deload ? 0.8 : loadHigh ? 0.85 : 1;
+  const isLongDay = (d) => slotOf(settings, d).kind === 'run_long';
+  const recentPain = (ctx.pain || []).some((x) => diffDays(date, x.date) >= 0 && diffDays(date, x.date) <= 7 && x.level >= RULES.painThreshold);
+  const fitWhy = () => fit.source === 'läufe' && fit.anchor ? [{ rule: 'R-FIT', text: `Leistungsstand VDOT ${fit.vdot.toString().replace('.', ',')} (Beleg ${fit.anchor.date.slice(8, 10)}.${fit.anchor.date.slice(5, 7)}.: ${Math.round(fit.anchor.dur_s / 60)} min, Ø ${fmtPace(fit.anchor.pace_s)} /km, Puls ${fit.anchor.hr}${fit.trend != null ? `, Puls-Tempo-Trend ${fit.trend > 0 ? '+' : ''}${fit.trend.toString().replace('.', ',')} %` : ''}): Schwelle ${fmtPace(fit.paces.threshold)}, Intervall ${fmtPace(fit.paces.interval)}, locker ${fmtPace(fit.paces.easy)}` }] : [{ rule: 'R-FIT', text: `Noch kein harter Lauf als Beleg: Tempi aus deiner Schwellenpace (${fmtPace(settings.lt_pace_s)}), Leistungsstand wird mit den nächsten harten Läufen genauer` }];
   if (loadHigh) why.push({ rule: 'R-LOAD', text: rd.signals.find((s) => s.id === 'R-LOAD').text + ': diese Woche entlastet' });
 
   if (slot.kind === 'rest') {
@@ -121,38 +137,33 @@ export function planDay(ctx, opts = {}) {
 
   if (slot.kind === 'run_quality') {
     const missed = opts.provisional ? [] : missedRuns(settings, acts, date);
-    let step = false;
     let easyInstead = false;
+    const sigs = opts.provisional ? [] : rd.signals;
     if (!opts.provisional) {
-      const medium = rd.signals.filter((s) => s.id !== 'R-LOAD');
-      if (level === 'medium' && medium.length) { step = true; why.push({ rule: medium[0].id, text: medium[0].text + ': Lauf eine Stufe leichter' }); }
-      if (level === 'low') { easyInstead = true; for (const s of rd.signals.slice(0, 2)) why.push({ rule: s.id, text: s.text }); why.push({ rule: 'R-EASY', text: 'Mehrere Erholungssignale: statt Qualität ein lockerer Lauf' }); }
-      if (missed.length >= 2) { why.push({ rule: 'R-MISSED', text: `Zwei geplante Läufe ausgefallen (${missed.slice(-2).join(', ')}): Block eine Stufe zurück` }); }
+      const medium = sigs.filter((s) => s.id !== 'R-LOAD');
+      if (level === 'medium' && medium.length) why.push({ rule: medium[0].id, text: medium[0].text + ': Intervallzeit um 20 % gekürzt' });
+      if (level === 'low') { easyInstead = true; for (const s of sigs.slice(0, 2)) why.push({ rule: s.id, text: s.text }); why.push({ rule: 'R-EASY', text: 'Mehrere Erholungssignale: statt Qualität ein lockerer Lauf' }); }
+      if (missed.length >= 2) why.push({ rule: 'R-MISSED', text: `Zwei geplante Läufe ausgefallen (${missed.slice(-2).join(', ')}): Intervallzeit um 15 % reduziert` });
     }
-    const effBlock = !opts.provisional && missed.length >= 2 ? { ...block, week: Math.max(1, block.week - 1) } : block;
     if (easyInstead) {
-      const s = runEasy(Math.round(40 * scaleWeek), settings, 'Lockerer Lauf statt Qualität');
+      const s = runEasy(Math.round(40 * scaleWeek), fit, settings, 'Lockerer Lauf statt Qualität');
       return { ...base, ...s, why, adjusted: true };
     }
-    const q = runQuality(effBlock, settings, { step });
-    return { ...base, ...q, why, adjusted: step || (missed.length >= 2) };
+    const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: !!opts.provisional, volScale: missed.length >= 2 ? 0.85 : 1 });
+    const q = buildQuality(pq.structure, fit, settings);
+    return { ...base, ...q, why: [...fitWhy(), ...(wp.deload ? [{ rule: 'R-DELOAD', text: wp.reason }] : []), ...pq.why, ...why], adjusted: (level === 'medium' && !opts.provisional) || missed.length >= 2, kindQ: pq.kind };
   }
 
   if (slot.kind === 'run_long') {
-    const planned = longRunKm(block);
-    const q = runQuality(block, settings);
-    const quality = q.targets.distance_km;
-    let km = planned * scaleWeek;
-    // Wachstumsregel: Wochenumfang höchstens +10 % gegen den Schnitt der letzten 3 Wochen.
-    const avg3 = Math.max(avgRunKmLast3(acts, date), 10);
-    const cap = avg3 * (1 + RULES.weeklyKmGrowth) - quality;
-    let capped = false;
-    if (!opts.provisional && km > cap) { km = Math.max(8, cap); capped = true; why.push({ rule: 'R-GROWTH', text: `Wochenumfang auf +10 % gegen deinen Schnitt von ${avg3.toFixed(0)} km begrenzt: Lauf ${Math.round(km)} statt ${planned} km` }); }
+    const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: true });
+    const qKm = buildQuality(pq.structure, fit, settings).targets.distance_km;
+    const pl = planLong({ activities: acts, date, fit, rd, wp, qualityKm: qKm, provisional: !!opts.provisional });
+    why.push(...pl.why);
     let scale = 1;
-    if (!opts.provisional && level === 'medium') { scale = 0.85; const s = rd.signals.find((x) => x.id !== 'R-LOAD') || rd.signals[0]; if (s) why.push({ rule: s.id, text: s.text + ': langer Lauf um etwa 15 % kürzer, ohne Zieltempo-Teil' }); }
+    if (!opts.provisional && level === 'medium') { scale = 0.85; const s = rd.signals.find((x) => x.id !== 'R-LOAD') || rd.signals[0]; if (s) why.push({ rule: s.id, text: s.text + ': langer Lauf um etwa 15 % kürzer, ohne Endteil' }); }
     if (!opts.provisional && level === 'low') { scale = 0.7; for (const s of rd.signals.slice(0, 2)) why.push({ rule: s.id, text: s.text }); why.push({ rule: 'R-EASY', text: 'Mehrere Erholungssignale: langer Lauf um 30 % kürzer' }); }
-    const s = runLong(block, settings, { km, scale });
-    return { ...base, ...s, why, adjusted: capped || scale < 1 };
+    const s = runLong(pl.km, pl.finish, fit, settings, { scale });
+    return { ...base, ...s, why: [...fitWhy(), ...why], adjusted: scale < 1 };
   }
 
   if (slot.kind === 'strength_a' || slot.kind === 'strength_b') {
@@ -186,9 +197,11 @@ export function planWeek(ctx) {
   const days = weekDates(ctx.date);
   const today = ctx.today || ctx.date;
   const rdToday = readiness({ ...ctx, date: today });
+  const ref = days.includes(today) ? today : days[6] < today ? days[6] : days[0];
+  const pc = planningContext({ ...ctx, date: ref }, withDefaults(ctx.settings), rdToday);
   return days.map((d) => {
     const provisional = diffDays(d, today) > 0;
     const dctx = { ...ctx, date: d };
-    return planDay(dctx, { provisional, rd: provisional ? undefined : readiness({ ...ctx, date: d < today ? d : today }) });
+    return planDay(dctx, { provisional, pc, rd: provisional ? undefined : readiness({ ...ctx, date: d < today ? d : today }) });
   });
 }

@@ -22,12 +22,17 @@ export function recoveryState(days, asOf) {
     return n >= from && n <= to;
   };
   const last7 = days.filter((d) => inRange(d, end - 6, end));
-  const base = days.filter((d) => inRange(d, end - 34, end - 7));
+  const base = days.filter((d) => inRange(d, end - 59, end - 7));
 
-  const hrvNow = mean(last7.map((d) => d.hrv_avg).filter(Number.isFinite));
-  const hrvBase = base.map((d) => d.hrv_avg).filter(Number.isFinite);
-  const hrvMean = mean(hrvBase);
-  const hrvSd = sd(hrvBase);
+  // HRV auf logarithmischer Skala (lnRMSSD, Plews et al. 2013): 7-Tage-Mittel gegen 60-Tage-Basis
+  const ln = (xs) => xs.filter((x) => Number.isFinite(x) && x > 0).map(Math.log);
+  const hrvNowLn = mean(ln(last7.map((d) => d.hrv_avg)));
+  const hrvBaseLn = ln(base.map((d) => d.hrv_avg));
+  const hrvMeanLn = mean(hrvBaseLn);
+  const hrvSdLn = sd(hrvBaseLn);
+  const hrvNow = hrvNowLn != null ? Math.exp(hrvNowLn) : null;
+  const hrvMean = hrvMeanLn != null ? Math.exp(hrvMeanLn) : null;
+  const hrvSd = hrvSdLn != null && hrvMean != null ? hrvMean * hrvSdLn : null; // grobe SD in ms für die Anzeige
 
   const rhrNow = mean(last7.slice(-3).map((d) => d.resting_hr).filter(Number.isFinite));
   const rhrBase = mean(base.map((d) => d.resting_hr).filter(Number.isFinite));
@@ -40,7 +45,7 @@ export function recoveryState(days, asOf) {
   const shortSleepTwoNights = sleeps.length === 2 && sleeps.every((s) => s < RULES.sleepShortHours * 3600);
 
   const signals = [];
-  if (hrvNow != null && hrvMean != null && hrvSd != null && hrvNow < hrvMean - RULES.hrvSdBelow * hrvSd) {
+  if (hrvNowLn != null && hrvMeanLn != null && hrvSdLn != null && hrvNowLn < hrvMeanLn - RULES.hrvSdBelow * hrvSdLn) {
     signals.push({ id: 'R-HRV', text: `HRV-Wochenmittel ${hrvNow.toFixed(0)} ms liegt unter der Basislinie (${hrvMean.toFixed(0)} ± ${hrvSd.toFixed(0)} ms)` });
   }
   if (rhrNow != null && rhrBase != null && rhrNow > rhrBase + RULES.restingHrAbove) {

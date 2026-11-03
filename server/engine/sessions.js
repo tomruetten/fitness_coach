@@ -1,94 +1,58 @@
-// Bausteine der Einheiten (Lauf A, Lauf B, Kraft). Reine Funktionen: Block und Woche rein, Einheit raus.
+// Bausteine der Einheiten (Lauf A, Lauf B, Kraft). Reine Funktionen: Struktur und Leistungsstand rein, Einheit raus.
 import { fmtPace } from './zones.js';
 
-const range = (a, b) => `${a}–${b}`;
 const kmAt = (min, paceS) => (min * 60) / paceS;
 const round1 = (x) => Math.round(x * 10) / 10;
-
-/** Zielwerte für Pace-Texte aus den Einstellungen. */
-export function paces(settings) {
-  const hm = settings.goal?.time_s && settings.goal?.distance_km ? settings.goal.time_s / settings.goal.distance_km : 313;
-  return { lt: settings.lt_pace_s, hm: Math.round(hm), easy: settings.easy_pace_s };
-}
-
 const WU_MIN = 15;
 const CD_MIN = 10;
 
-// ---- Lauf A (Qualität) -----------------------------------------------------------------
-// Je Block und Woche eine Struktur. `step` verkleinert sie bei mittlerer Erholung um eine Stufe.
-const QUALITY = {
-  basis: [
-    { type: 'strides', easyMin: 35, reps: 6, repS: 20 },
-    { type: 'fartlek', reps: 6, repS: 60, recS: 120 },
-    { type: 'strides', easyMin: 40, reps: 8, repS: 20 },
-    { type: 'strides', easyMin: 30, reps: 4, repS: 20 }, // Entlastung
-  ],
-  aufbau: [
-    { type: 'threshold', reps: 3, repMin: 8, recMin: 2 },
-    { type: 'threshold', reps: 3, repMin: 10, recMin: 2 },
-    { type: 'threshold', reps: 2, repMin: 15, recMin: 3 },
-    { type: 'threshold', reps: 3, repMin: 8, recMin: 2 }, // Entlastung
-    { type: 'threshold', reps: 4, repMin: 10, recMin: 2 },
-  ],
-  spezifisch: [
-    { type: 'hm', reps: 2, repKm: 4, recKm: 1 },
-    { type: 'hm', reps: 2, repKm: 5, recKm: 1 },
-    { type: 'hm', reps: 4, repKm: 2, recKm: 0.5 },
-  ],
-  taper: [{ type: 'hm', reps: 4, repKm: 1, recKm: 0.5 }],
-};
-
-function stepDown(q) {
-  const out = { ...q };
-  if (q.type === 'threshold') out.reps = Math.max(2, q.reps - 1);
-  else if (q.type === 'hm') out.reps = Math.max(2, q.reps - 1);
-  else if (q.type === 'fartlek') out.reps = Math.max(4, q.reps - 2);
-  else out.reps = Math.max(4, q.reps - 2);
-  return out;
-}
-
-export function runQuality(block, settings, { step = false } = {}) {
-  const list = QUALITY[block.name];
-  let q = list[Math.min(block.week, list.length) - 1];
-  if (step) q = stepDown(q);
-  const p = paces(settings);
+/**
+ * Qualitätslauf aus einer Struktur (siehe progression.js) und dem Leistungsstand `fit` (Tempi in s/km).
+ */
+export function buildQuality(q, fit, settings) {
+  const p = fit.paces;
   const easyKm = (m) => kmAt(m, p.easy);
   const steps = [{ label: 'Einlaufen', detail: `${WU_MIN} min locker, Puls bis ${settings._z2to}` }];
   let km = easyKm(WU_MIN) + easyKm(CD_MIN);
-  let title;
-  let summary;
+  let title, summary, pace = null;
+  const hrWork = `Puls ${settings._z4from}–${settings.lthr} bpm`;
   if (q.type === 'strides') {
     steps.push({ label: 'Lockerer Dauerlauf', detail: `${q.easyMin} min im Z2-Bereich (${settings._z2from}–${settings._z2to} bpm)` });
-    steps.push({ label: 'Steigerungsläufe', detail: `${q.reps} × ${q.repS} s flott (ca. ${fmtPace(p.lt - 25)} min/km), 60 s Gehpause` });
-    km += easyKm(q.easyMin) + (q.reps * q.repS) / (p.lt - 25); // Strecke der Steigerungen
+    steps.push({ label: 'Steigerungsläufe', detail: `${q.reps} × ${q.repS} s flott (ca. ${fmtPace(p.rep)} min/km), 60 s Gehpause` });
+    km += easyKm(q.easyMin) + (q.reps * q.repS) / p.rep;
     title = 'Locker mit Steigerungen';
     summary = 'Aerobe Grundlage und Lauftechnik: locker laufen, am Ende kurze, entspannte Beschleunigungen.';
-  } else if (q.type === 'fartlek') {
-    steps.push({ label: 'Fahrtspiel', detail: `${q.reps} × ${q.repS / 60} min bei ca. ${fmtPace(p.lt - 8)} min/km, dazwischen ${q.recS / 60} min locker` });
-    km += (q.reps * q.repS) / (p.lt - 8) + (q.reps * q.recS) / p.easy;
-    title = 'Fahrtspiel';
-    summary = 'Kurze Tempowechsel um die Schwelle, aber ohne die Beine zu belasten.';
   } else if (q.type === 'threshold') {
-    steps.push({ label: 'Schwellenintervalle', detail: `${q.reps} × ${q.repMin} min bei ${fmtPace(p.lt)} min/km (Puls ${settings._z4from}–${settings.lthr} bpm), ${q.recMin} min locker traben` });
-    km += (q.reps * q.repMin * 60) / p.lt + ((q.reps - 1) * q.recMin * 60) / p.easy;
+    steps.push({ label: 'Schwellenintervalle', detail: `${q.reps} × ${q.repMin} min bei ${fmtPace(p.threshold)} min/km (${hrWork}), ${q.recMin} min locker traben` });
+    km += (q.reps * q.repMin * 60) / p.threshold + ((q.reps - 1) * q.recMin * 60) / p.easy;
     title = `Schwelle ${q.reps} × ${q.repMin} min`;
-    summary = 'Tempo an der Laktatschwelle: gleichmäßig und kontrolliert, nicht schneller als die Zielpace.';
+    summary = 'Cruise-Intervalle an der Laktatschwelle: gleichmäßig und kontrolliert, nicht schneller als die Zielpace.';
+    pace = p.threshold;
+  } else if (q.type === 'tempo') {
+    steps.push({ label: 'Tempodauerlauf', detail: `${q.workMin} min durchgehend bei ${fmtPace(p.threshold)} min/km (${hrWork})` });
+    km += (q.workMin * 60) / p.threshold;
+    title = `Tempodauerlauf ${q.workMin} min`;
+    summary = 'Gleichmäßig an der Schwelle, ohne Pause: trainiert, das Tempo lange zu halten.';
+    pace = p.threshold;
+  } else if (q.type === 'vo2') {
+    steps.push({ label: 'VO2max-Intervalle', detail: `${q.reps} × ${q.repMin} min bei ${fmtPace(p.interval)} min/km, ${q.recMin} min locker traben. Nach Pace laufen, der Puls steigt erst gegen Ende auf ${Math.round(settings.lthr * 0.97)}–${settings.max_hr} bpm` });
+    km += (q.reps * q.repMin * 60) / p.interval + ((q.reps - 1) * q.recMin * 60) / p.easy;
+    title = `VO2max ${q.reps} × ${q.repMin} min`;
+    summary = 'Schnelle, kurze Intervalle verbessern die maximale Sauerstoffaufnahme. Kontrolliert starten, die letzte Wiederholung wie die erste.';
+    pace = p.interval;
   } else {
-    steps.push({ label: 'Halbmarathon-Tempo', detail: `${q.reps} × ${q.repKm} km bei ${fmtPace(p.hm)} min/km, ${q.recKm} km locker dazwischen` });
-    km += q.reps * q.repKm + (q.reps - 1) * q.recKm;
-    title = `Zieltempo ${q.reps} × ${q.repKm} km`;
-    summary = 'Das Renntempo trainieren: gleichmäßig, entspannt und mit klarer Form.';
+    steps.push({ label: '30-Minuten-Test', detail: `30 min so gleichmäßig schnell wie möglich laufen. Erster Kilometer ca. ${fmtPace(p.test30 + 4)} min/km, dann Tempo halten, Erwartung etwa ${fmtPace(p.test30)} min/km` });
+    km += (30 * 60) / p.test30;
+    title = '30-Minuten-Test';
+    summary = 'Zeitfahren über 30 min (Friel): Durchschnittspuls der letzten 20 min = deine Schwelle, Pace und Puls aktualisieren Leistungsstand und Tempi.';
+    pace = p.test30;
   }
   steps.push({ label: 'Auslaufen', detail: `${CD_MIN} min locker` });
-  return {
-    title, summary, steps,
-    targets: { distance_km: round1(km), pace_s: q.type === 'threshold' ? p.lt : q.type === 'hm' ? p.hm : null, hr_from: settings._z4from, hr_to: settings.lthr },
-    structure: q,
-  };
+  return { title, summary, steps, targets: { distance_km: round1(km), pace_s: pace, hr_from: settings._z4from, hr_to: settings.lthr }, structure: q };
 }
 
-export function runEasy(minutes, settings, why = 'Lockerer Lauf') {
-  const km = kmAt(minutes, settings.easy_pace_s);
+export function runEasy(minutes, fit, settings, why = 'Lockerer Lauf') {
+  const km = kmAt(minutes, fit.paces.easy);
   return {
     title: why,
     summary: `Locker laufen, Puls im Z1/Z2-Bereich (bis ${settings._z2to} bpm). Das Gespräch muss möglich bleiben.`,
@@ -97,35 +61,18 @@ export function runEasy(minutes, settings, why = 'Lockerer Lauf') {
   };
 }
 
-// ---- Lauf B (lang) ---------------------------------------------------------------------
-const LONG_KM = {
-  basis: [12, 13, 14, 12],
-  aufbau: [15, 16, 17, 15, 18],
-  spezifisch: [18, 19, 16],
-  taper: [8],
-};
-const LONG_FINISH_KM = { spezifisch: [4, 6, 0], aufbau: [0, 0, 3, 0, 4], basis: [0, 0, 0, 0], taper: [0] };
-
-export function longRunKm(block) {
-  const list = LONG_KM[block.name];
-  return list[Math.min(block.week, list.length) - 1];
-}
-
-export function runLong(block, settings, { km, scale = 1 }) {
-  const p = paces(settings);
-  const finishList = LONG_FINISH_KM[block.name];
-  let finish = finishList[Math.min(block.week, finishList.length) - 1] || 0;
+/** Langer Lauf mit optionaler Endbeschleunigung `finish` ({km, pace_s, label}). */
+export function runLong(km, finish, fit, settings, { scale = 1 } = {}) {
   const total = Math.max(6, Math.round(km * scale));
-  if (scale < 1) finish = 0;
-  finish = Math.min(finish, Math.floor(total / 3));
-  const steps = [{ label: 'Gleichmäßig locker', detail: `${total - finish} km bei Puls ${settings._z2from}–${settings._z2to} bpm (ca. ${fmtPace(p.easy)} min/km)` }];
-  if (finish > 0) steps.push({ label: 'Endteil im Zieltempo', detail: `letzte ${finish} km bei ${fmtPace(p.hm)} min/km` });
-  const minutes = Math.round(((total - finish) * p.easy + finish * p.hm) / 60);
+  const fin = scale < 1 || !finish ? null : { ...finish, km: Math.min(finish.km, Math.floor(total / 3)) };
+  const steps = [{ label: 'Gleichmäßig locker', detail: `${total - (fin?.km || 0)} km bei Puls ${settings._z2from}–${settings._z2to} bpm (ca. ${fmtPace(fit.paces.easy)} min/km)` }];
+  if (fin && fin.km > 0) steps.push({ label: `Endteil im ${fin.label}`, detail: `letzte ${fin.km} km bei ${fmtPace(fin.pace_s)} min/km` });
+  const minutes = Math.round((((total - (fin?.km || 0)) * fit.paces.easy) + (fin?.km || 0) * (fin?.pace_s || 0)) / 60);
   return {
     title: `Langer Lauf ${total} km`,
-    summary: finish > 0 ? 'Ausdauer mit Endbeschleunigung im Renntempo.' : 'Ausdauer: ruhig und gleichmäßig, Tempo nicht erzwingen.',
+    summary: fin && fin.km > 0 ? 'Ausdauer mit Endbeschleunigung: Schneller werden, wenn die Beine müde sind.' : 'Ausdauer: ruhig und gleichmäßig, Tempo nicht erzwingen.',
     steps,
-    targets: { distance_km: total, duration_min: minutes, pace_s: p.easy, hr_from: settings._z2from, hr_to: settings._z2to },
+    targets: { distance_km: total, duration_min: minutes, pace_s: fit.paces.easy, hr_from: settings._z2from, hr_to: settings._z2to },
   };
 }
 

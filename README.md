@@ -4,8 +4,15 @@ Persönliche Trainings-App für Laufen, Rad und Kraft. Daten kommen aus der Garm
 
 ## Wie der Plan entsteht
 - Feste Wochenroutine: Di Spinning (Kurs), Mi Kraft A, Do Lauf Qualität, Sa Langer Lauf, So Kraft B; Mo und Fr frei. Die Sportart je Tag ist fix, der Inhalt passt sich an.
-- Blockperiodisierung (Basis 4, Aufbau 5, Spezifisch 3 Wochen, Taper). Mit Wettkampfdatum wird rückwärts gezählt, sonst Zyklus à 12 Wochen.
-- Anpassung nach Regeln: Entlastungswoche (R-DELOAD), Belastungsverhältnis 7 d/28 d über 1,5 (R-LOAD), HRV, Ruhepuls, Schlaf (R-HRV/RHR/SLEEP), Anstrengung (R-RPE), Schmerz (R-PAIN), ausgefallene Läufe (R-MISSED), Umfangszuwachs höchstens 10 % (R-GROWTH), Spinning gestern (R-SPIN). Jede Anpassung steht mit Begründung auf der Karte.
+- **Leistungsstand statt Kalender.** Es gibt kein festes Rennen; die App misst laufend, wie fit du bist (`server/engine/fitness.js`):
+  - VDOT nach Daniels & Gilbert aus deinen härtesten Leistungen (beste 5/10/20/30/60 min und ganze Läufe mit Puls nahe Schwelle), mit langsamem Alterungsabschlag (−0,5 % je Woche nach 3 Wochen ohne Beleg).
+  - Dazu das Puls-Tempo-Verhalten aller Läufe (Pulsreserve ≈ VO2-Reserve, Swain et al. 1994): wird dein Tempo bei gleichem Puls schneller, steigt der VDOT zwischen harten Läufen.
+  - Daraus folgen Schwelle (88 % VO2max), Intervall (98 %), Marathon-/Halbmarathontempo und Prognosen. Das lockere Tempo kommt aus deinen eigenen Z2-Kilometern.
+- **Umfang und Zyklus** (`progression.js`): Wochenumfang +10 % gegen letzte Woche, nach drei Belastungswochen eine Entlastungswoche (−22 %, Intensität bleibt), danach zurück auf das alte Niveau. Wachstum nur bei guter Erholung; Belastungsverhältnis (EWMA 7/28 d nach Williams et al.) über 1,3 bremst. Ausreißerwochen (Rennen) werden begrenzt.
+- **Qualitätslauf:** Zyklus Schwelle (Cruise-Intervalle) → VO2max-Intervalle → Tempodauerlauf → Entlastung. Das Volumen ist das zuletzt tatsächlich Gelaufene (harte Abschnitte aus der FIT-Datei) × 1,08, bei RPE ≥ 9 × 0,9, bei leichter Einheit × 1,12. Harte Zeit höchstens 20 % der Wochen-Trainingszeit abzüglich Spinning (Seiler, 80/20). Ohne belegte Regelmäßigkeit (6 Läufe in 4 Wochen) nur Steigerungsläufe. Fehlt seit über 5 Wochen ein harter Beleg, ersetzt ein 30-Minuten-Test die Einheit.
+- **Langer Lauf:** Wochenziel minus bereits Gelaufenes, höchstens +10 % gegen den längsten Lauf der letzten 4 Wochen und 150 min. Entkopplung (Pa:HR) über 6 % hält die Länge, unter 3 % gibt frei. Ab Belastungswoche 2 Endteil im Marathon-, dann Halbmarathontempo.
+- Weitere Regeln: HRV auf ln-Skala (7-Tage-Mittel gegen 60-Tage-Basis, Plews et al.), Ruhepuls, Schlaf, RPE, Schmerz, ausgefallene Läufe, Spinning am Vortag. Jede Anpassung steht mit Begründung auf der Karte („So wurde geplant“).
+- Beim ersten Sync nach dem Update werden ältere Läufe einmalig neu ausgewertet (`best.v = 2`: Bestleistungen, harte Abschnitte, Entkopplung). Bis dahin nutzt die App Kilometerwerte und Pulszonen.
 - Zonen aus Schwellenpuls 181: Z1 <154, Z2 154–162, Z3 163–171, Z4 172–180, Z5 ≥181.
 
 ## Einrichtung

@@ -212,3 +212,7 @@ nav button svg{width:24px;height:24px}
 .menu button svg{flex:none}
 .menu button[data-status=""] svg{color:#FF9500}.menu button[data-status="done"] svg{color:#34C759}.menu button[data-status="skipped"] svg{color:#FF3B30}
 #app{padding-top:calc(env(safe-area-inset-top) + 34px)}
+
+.why{margin:4px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}.why li{position:relative;padding-left:12px;font-size:13px;line-height:18px;color:var(--mute2)}.why li::before{content:"";position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:var(--acc);opacity:.55}
+.fitcard .fine{margin:10px 0 0;font-size:12.5px;line-height:17px;color:var(--mute2)}.fitcard .fine b{color:var(--ink)}
+.fitcard .kv{gap:22px;margin-top:2px}

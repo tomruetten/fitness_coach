@@ -105,7 +105,31 @@ export async function runSync(client, store, { settings = {}, maxNew = 6, histor
       if (/Garmin lehnte|401|403/.test(e.message)) throw e;
     }
   }
-  const remaining = missing.length - added - errors.length;
+  // 2b. Ältere Läufe einmalig mit der erweiterten Auswertung (best.v = 2) nachrechnen: Bestleistungen über
+  //     5–60 min, harte Abschnitte und Entkopplung. Die FIT-Dateien werden dafür erneut geladen.
+  let reprocessed = 0;
+  const failed = new Set((await store.getSetting('reprocess_failed')) || []);
+  let stale = [];
+  if (!historyFrom) {
+    stale = (await store.activitiesSince(addDays(today, -130))).filter((a) => a.sport === 'running' && a.distance_m > 1500 && a.best?.v !== 2 && !failed.has(a.id));
+    for (const a of stale) {
+      if (added + reprocessed >= maxNew || Date.now() - started > deadlineMs) break;
+      try {
+        const fit = await client.downloadFit(a.id);
+        const row = await activityFromFit(fit, { activityId: a.id, lthr: s.lthr, tz });
+        if (a.rpe != null && row.rpe == null) row.rpe = a.rpe;
+        await store.upsertActivities([row]);
+        reprocessed++;
+      } catch (e) {
+        failed.add(a.id);
+        errors.push({ id: a.id, error: e.message });
+        if (/Garmin lehnte|401|403/.test(e.message)) throw e;
+      }
+    }
+    if (errors.length) await store.setSetting('reprocess_failed', [...failed].slice(-100));
+  }
+  const staleLeft = stale.length - reprocessed - stale.filter((a) => failed.has(a.id)).length;
+  const remaining = missing.length - added - errors.filter((e) => missing.includes(e.id)).length + Math.max(0, staleLeft);
 
   // 3. Tageswerte erst, wenn alle Aktivitäten durch sind (spart Zeit pro Aufruf)
   let healthRows = 0, health = null;
@@ -114,5 +138,5 @@ export async function runSync(client, store, { settings = {}, maxNew = 6, histor
     healthRows = health.rows;
     await store.setSetting('last_sync', { date: today, at: new Date().toISOString() });
   }
-  return { added, remaining: Math.max(0, remaining), healthRows, health, errors, done: remaining <= 0 };
+  return { added, reprocessed, remaining: Math.max(0, remaining), healthRows, health, errors, done: remaining <= 0 };
 }

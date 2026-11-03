@@ -75,6 +75,81 @@ export function bestEffort(samples, windowS) {
   return best && { pace_s: Math.round(best.pace_s), hr: best.hr, at: best.at };
 }
 
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
+
+/** Geglättete Geschwindigkeit (gleitendes Mittel über `w` Sekunden, rückwärts). */
+function smoothSpeed(pts, w = 20) {
+  const out = new Array(pts.length).fill(0);
+  let j = 0, sum = 0, tsum = 0;
+  for (let i = 0; i < pts.length; i++) {
+    sum += pts[i].speed * pts[i].dt; tsum += pts[i].dt;
+    while (pts[i].t - pts[j].t > w) { sum -= pts[j].speed * pts[j].dt; tsum -= pts[j].dt; j++; }
+    out[i] = tsum > 0 ? sum / tsum : 0;
+  }
+  return out;
+}
+
+/**
+ * Harte Abschnitte eines Laufs (Intervalle, Tempoteile, Endbeschleunigung): zusammenhängende Stücke,
+ * die mindestens 60 s dauern und deutlich schneller sind als das Grundtempo des Laufs (Median).
+ * Rückgabe je Abschnitt: Dauer, Pace, mittlerer Puls und Puls der letzten 30 s.
+ */
+export function hardSegments(samples) {
+  const pts = samples.filter((s) => s.speed > 0.5 && s.dt > 0);
+  if (pts.length < 120) return [];
+  const sp = smoothSpeed(pts);
+  const base = median(pts.filter((s) => s.speed > 1.5).map((s) => s.speed));
+  if (!base) return [];
+  const thr = base * 1.12;
+  const segs = [];
+  let cur = null;
+  for (let i = 0; i < pts.length; i++) {
+    const hard = sp[i] >= thr;
+    if (hard) { if (!cur) cur = { a: i, b: i, gap: 0 }; else { cur.b = i; cur.gap = 0; } }
+    else if (cur) { cur.gap += pts[i].dt; if (cur.gap > 20) { segs.push(cur); cur = null; } }
+  }
+  if (cur) segs.push(cur);
+  const out = [];
+  for (const s of segs) {
+    const part = pts.slice(s.a, s.b + 1);
+    const dur = part.reduce((a, p) => a + p.dt, 0);
+    if (dur < 60) continue;
+    const dist = part.reduce((a, p) => a + p.speed * p.dt, 0);
+    const hr = part.reduce((a, p) => a + p.hr * p.dt, 0) / Math.max(1, part.filter((p) => p.hr > 0).reduce((a, p) => a + p.dt, 0));
+    const tail = part.filter((p) => p.t >= part[part.length - 1].t - 30 && p.hr > 0);
+    out.push({
+      dur_s: Math.round(dur),
+      pace_s: Math.round((dur / dist) * 1000),
+      hr: Math.round(hr),
+      hr_end: tail.length ? Math.round(tail.reduce((a, p) => a + p.hr, 0) / tail.length) : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Entkopplung (Pa:HR): Verlust an Tempo-pro-Puls zwischen erster und zweiter Hälfte eines gleichmäßigen Laufs.
+ * Unter etwa 5 % gilt die aerobe Grundlage für diese Dauer als tragfähig. Nur für Läufe ab 40 min sinnvoll.
+ */
+export function decoupling(samples) {
+  const pts = samples.filter((s) => s.speed > 1.5 && s.hr > 90 && s.dt > 0);
+  if (pts.length < 600) return null;
+  const t0 = pts[0].t + 600; // die ersten 10 min zählen als Einlaufen
+  const body = pts.filter((s) => s.t >= t0);
+  if (body.length < 900) return null;
+  const sp = smoothSpeed(body, 30);
+  const m = sp.reduce((a, b) => a + b, 0) / sp.length;
+  const cv = Math.sqrt(sp.reduce((a, b) => a + (b - m) ** 2, 0) / sp.length) / m;
+  const mid = Math.floor(body.length / 2);
+  const ef = (part) => {
+    const v = part.reduce((a, p) => a + p.speed * p.dt, 0) / part.reduce((a, p) => a + p.dt, 0);
+    const h = part.reduce((a, p) => a + p.hr * p.dt, 0) / part.reduce((a, p) => a + p.dt, 0);
+    return v / h;
+  };
+  const e1 = ef(body.slice(0, mid)), e2 = ef(body.slice(mid));
+  return { pct: Math.round(((e1 - e2) / e1) * 1000) / 10, steady: cv < 0.12 };
+}
+
 export function kmSplits(samples) {
   const pts = samples.filter((s) => s.dist != null);
   if (!pts.length) return [];
@@ -103,6 +178,15 @@ export function kmSplits(samples) {
     }
   }
   return out;
+}
+
+/** Alles, was die Planung aus einem Lauf lernt. v=2 markiert die erweiterte Auswertung. */
+export function runAnalysis(samples) {
+  const best = { v: 2 };
+  for (const [k, min] of [['m5', 5], ['m10', 10], ['m20', 20], ['m30', 30], ['m60', 60]]) best[k] = bestEffort(samples, min * 60);
+  best.segments = hardSegments(samples);
+  best.drift = decoupling(samples);
+  return best;
 }
 
 /**
@@ -143,7 +227,7 @@ export async function activityFromFit(buffer, { activityId, lthr, tz = 'Europe/B
     step_len_m: isRun && s.avg_step_length ? Math.round(s.avg_step_length) / 1000 : null,
     vert_ratio: isRun ? s.avg_vertical_ratio ?? null : null,
     zone_s: zoneSecs,
-    best: isRun ? { m20: bestEffort(samples, 20 * 60), m30: bestEffort(samples, 30 * 60) } : null,
+    best: isRun ? runAnalysis(samples) : null,
     km_splits: isRun ? kmSplits(samples) : null,
   };
   row.load = Math.round(activityLoad({ sport, durationS: row.duration_s, zoneSecs }) * 10) / 10;

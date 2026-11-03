@@ -1,7 +1,7 @@
 // Startwerte der Anpassungsregeln. Sie sind Vorschläge und werden nach vier
 // Wochen an den echten Daten kalibriert (siehe README, „Kalibrierung“).
 export const RULES = {
-  hrvSdBelow: 1.0,        // HRV-Wochenmittel mehr als 1 SD unter Basislinie
+  hrvSdBelow: 0.75,       // ln-HRV-Wochenmittel mehr als 0,75 SD unter der 60-Tage-Basis
   restingHrAbove: 5,      // Ruhepuls mehr als 5 bpm über Basislinie
   sleepShortHours: 6.5,   // zwei Nächte in Folge darunter
   acwrHigh: 1.5,          // akute/chronische Last darüber: Woche entlasten

@@ -80,9 +80,21 @@ function otherCard(d) {
 }
 function infoCard(d) {
   const p = d.plan, rd = d.readiness, why = p.why || [];
-  const adjusted = why.length > 0;
-  const text = adjusted ? why.map((w) => esc(w.text)).join('<br>') : rd.signals?.length ? rd.signals.map((s) => esc(s.text)).join('<br>') : 'Erholung und Belastung liegen im Normalbereich.';
-  return `<div class="card info"><div class="ico">${'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>'}</div><div><b>${adjusted ? 'Heute angepasst' : 'Heute nicht angepasst'}</b><p>${text}</p></div></div>`;
+  const adjusted = !!p.adjusted;
+  const lines = why.length ? why.map((w) => w.text) : rd.signals?.length ? rd.signals.map((s) => s.text) : ['Erholung und Belastung liegen im Normalbereich.'];
+  const title = adjusted ? 'Heute angepasst' : why.length ? 'So wurde geplant' : 'Heute nicht angepasst';
+  return `<div class="card info"><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div><div><b>${title}</b><ul class="why">${lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>`;
+}
+
+const hms = (s) => `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+function fitCard(d) {
+  const f = d.fitness; if (!f) return '';
+  const c = d.cycle;
+  const conf = { hoch: 'hoch', mittel: 'mittel', niedrig: 'niedrig' }[f.confidence];
+  const evid = f.anchor ? `Beleg vom ${f.anchor.date.slice(8, 10)}.${f.anchor.date.slice(5, 7)}.` : 'noch ohne harten Lauf';
+  return `<h2>Leistungsstand</h2><div class="card fitcard"><div class="kv"><div><small>VDOT</small><strong>${dec(f.vdot, 1)}</strong></div><div><small>Halbmarathon-Prognose</small><strong>${hms(f.predictions.hm)}</strong></div><div><small>Schwelle</small><strong>${pace(f.paces.threshold)}</strong></div></div>
+    <p class="fine">Locker ${pace(f.paces.easy)} · Intervall ${pace(f.paces.interval)} /km · ${evid} · Sicherheit ${conf}</p>
+    ${c ? `<p class="fine"><b>${c.deload ? 'Entlastungswoche' : `Belastungswoche ${c.week} von 3`}</b> · Wochenziel ${Math.round(c.target_km)} km (letzte Woche ${Math.round(c.last_km)} km)</p>` : ''}</div>`;
 }
 
 const STATUS = [[null, 'Offen'], ['done', 'Erledigt'], ['skipped', 'Ausgefallen']];
@@ -118,6 +130,7 @@ function drawToday(d, stale) {
   let html = head + pills(d);
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
   html += infoCard(d);
+  if (g === 'run') html += fitCard(d);
   if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   if (d.thresholdSuggestion) {
     const s = d.thresholdSuggestion;
@@ -259,7 +272,7 @@ async function viewMore() {
     <div class="row"><span>Wettkampfdatum</span><input class="txt" id="gd" type="date" style="width:160px;margin:0" value="${g.date || ''}"></div>
     <div class="row"><span>Schwellenpuls</span><input class="txt" id="lthr" type="number" style="width:90px;margin:0" value="${s.lthr}"></div>
     <div class="row"><span>Maximalpuls</span><input class="txt" id="mhr" type="number" style="width:90px;margin:0" value="${s.max_hr}"></div>
-    <div class="row"><span>Schwellentempo (min/km)</span><input class="txt" id="ltp" style="width:90px;margin:0" value="${pace(s.lt_pace_s)}"></div>
+    <div class="row"><span>Schwellentempo (Startwert)</span><input class="txt" id="ltp" style="width:90px;margin:0" value="${pace(s.lt_pace_s)}"></div>
     <div class="row"><span>Lockeres Tempo</span><input class="txt" id="ezp" style="width:90px;margin:0" value="${pace(s.easy_pace_s)}"></div>
     <button class="pri" id="saveS">Speichern</button></div>
   <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
