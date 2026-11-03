@@ -114,10 +114,15 @@ function marksOf({ list, activities, settings, date, km }) {
     if (a.sport !== 'running' || !a.avg_hr || a.avg_hr / settings.lthr < 0.95 || a.local_date > date) continue;
     const i = idxOf(a.local_date);
     if (i < 0) continue;
-    const hit = STD.find(([m]) => Math.abs(a.distance_m - m) / m < 0.04);
+    const hit = STD.find(([m]) => Math.abs(a.distance_m - m) / m < 0.04)
+      || (a.distance_m >= 5000 && a.avg_hr / settings.lthr >= 0.98 && a.rpe >= 8 ? [0, `Wettkampf ${String((a.distance_m / 1000).toFixed(1)).replace('.', ',')} km`] : null);
     const test = a.duration_s >= 1750 && a.duration_s <= 2000 && a.distance_m > 4500;
     if (hit) marks.push({ i, kind: 'race', label: hit[1], date: a.local_date });
     else if (test) marks.push({ i, kind: 'test', label: '30-Minuten-Test', date: a.local_date });
+  }
+  for (const r of settings.races || []) {
+    const i = idxOf(r.date);
+    if (i >= 0 && r.date <= date && !marks.some((m) => m.i === i && m.kind === 'race' && m.date === r.date)) marks.push({ i, kind: 'race', label: r.label || 'Rennen', date: r.date });
   }
   const skipped = Object.entries(settings._status || {}).filter(([d, s]) => s === 'skipped' && d <= date);
   if (weekly && list.length === 7) for (const [d] of skipped) { const i = idxOf(d); if (i >= 0) marks.push({ i, kind: 'skip', label: 'Ausgefallen', date: d }); }

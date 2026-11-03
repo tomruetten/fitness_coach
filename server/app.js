@@ -286,6 +286,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       const v = num(b[k], lo, hi);
       if (v !== undefined) next[k] = v;
     }
+    if (Array.isArray(b.races)) next.races = b.races.filter((r) => isDate(r?.date)).slice(0, 30).map((r) => ({ date: r.date, label: String(r.label || 'Rennen').slice(0, 40) }));
     if (b.goal) {
       const g = { ...(saved.goal || {}) };
       if (num(b.goal.time_s, 600, 40000) !== undefined) g.time_s = num(b.goal.time_s, 600, 40000);
