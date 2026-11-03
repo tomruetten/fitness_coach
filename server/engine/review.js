@@ -7,7 +7,7 @@ const sumKm = (xs) => xs.filter(isRun).reduce((s, a) => s + a.distance_m, 0) / 1
 const r1 = (v) => Math.round(v * 10) / 10;
 const mean = (xs) => { const v = xs.filter(Number.isFinite); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const dec = (v, n = 1) => v.toFixed(n).replace('.', ',');
-const grp = (a) => (a.sport === 'running' ? 'run' : a.sport === 'strength' ? 'strength' : 'spin');
+const grp = (a) => (a.sport === 'running' ? 'run' : a.sport === 'strength' ? 'strength' : a.sport === 'cycling' ? 'spin' : 'other');
 
 /** Rückblick auf die Woche, die am Montag `monday` beginnt. `planned`: Pläne dieser Woche (planWeek). */
 export function weekReview({ activities, days, settings, monday, planned }) {

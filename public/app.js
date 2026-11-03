@@ -276,14 +276,14 @@ let weekEdit = null; // {order:[Plan], sel:null|index} solange die Woche bearbei
 const GRIP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg>';
 const isDone = (p) => p.status === 'done' || (p.status !== 'skipped' && p.done?.length > 0);
 const RING = { open: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>', skipped: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>' };
-const SPC = { run: KIND_COLOR.running, strength: KIND_COLOR.strength, spin: KIND_COLOR.spinning, done: '#34C759' };
+const SPC = { run: KIND_COLOR.running, strength: KIND_COLOR.strength, spin: KIND_COLOR.spinning, other: '#8E8E93', done: '#34C759' };
 function consCard(c, today) {
   const cells = c.rows.flatMap((r) => r.cells).map((x) => {
     const col = x.s.map((k) => SPC[k]);
     const bg = col.length === 0 ? '' : col.length === 1 ? col[0] : `linear-gradient(135deg,${col[0]} 50%,${col[1]} 50%)`;
     return `<i class="cc${x.future ? ' fut' : ''}${x.skip && !x.s.length ? ' skip' : ''}${x.date === today ? ' now' : ''}"${bg ? ` style="background:${bg}"` : ''} title="${x.date.slice(8, 10)}.${x.date.slice(5, 7)}."></i>`;
   }).join('');
-  return `<h2>Konsistenz</h2><div class="card cons"><div class="cons-top"><div><b>${c.streak}</b><small>${c.streak === 1 ? 'Woche' : 'Wochen'} in Folge mit 3+ aktiven Tagen</small></div><div class="r"><b>${c.active_days}</b><small>aktive Tage in ${c.weeks} Wochen</small></div></div><div class="cgrid" style="grid-template-columns:repeat(${c.rows.length},1fr)">${cells}</div><div class="plg"><span><i style="background:${SPC.run}"></i>Laufen</span><span><i style="background:${SPC.strength}"></i>Kraft</span><span><i style="background:${SPC.spin}"></i>Spinning</span></div></div>`;
+  return `<h2>Konsistenz</h2><div class="card cons"><div class="cons-top"><div><b>${c.streak}</b><small>${c.streak === 1 ? 'Woche' : 'Wochen'} in Folge mit 3+ aktiven Tagen</small></div><div class="r"><b>${c.active_days}</b><small>aktive Tage in ${c.weeks} Wochen</small></div></div><div class="cgrid" style="grid-template-columns:repeat(${c.rows.length},1fr)">${cells}</div><div class="plg"><span><i style="background:${SPC.run}"></i>Laufen</span><span><i style="background:${SPC.strength}"></i>Kraft</span><span><i style="background:${SPC.spin}"></i>Spinning / Rad</span>${c.rows.some((r) => r.cells.some((x) => x.s.includes('other'))) ? `<span><i style="background:${SPC.other}"></i>Sonstiges</span>` : ''}</div></div>`;
 }
 async function loadReview(todayIso) {
   const open = [1, 2].includes(new Date(todayIso + 'T12:00').getDay()); // Montag und Dienstag
