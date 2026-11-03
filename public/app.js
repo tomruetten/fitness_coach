@@ -338,7 +338,8 @@ function go(view, o = {}) {
     dir = TABS.indexOf(view) >= TABS.indexOf(tab) ? 1 : -1;
     sub = null; tab = view;
   } else { push(); sub = { view, ...o }; dir = 1; }
-  render();
+  if (!sub) placePill(TABS.indexOf(tab)); // die Blase startet vor dem schweren Neuzeichnen der Seite
+  requestAnimationFrame(() => render());
   return true;
 }
 async function render() {
@@ -351,7 +352,8 @@ async function render() {
   if (!sub) placePill(TABS.indexOf(tab));
   app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
-  if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) app.animate([{ transform: `translateX(${dir * 38}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  app.style.transition = 'none'; app.style.transform = ''; app.style.opacity = '';
+  if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) { movingOn(); const an = app.animate([{ transform: `translateX(${dir * 38}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' }); an.onfinish = an.oncancel = movingOff; } else movingOff();
   dir = 0;
   try {
     if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
@@ -377,20 +379,26 @@ $$('#tabs button').forEach((b) => b.addEventListener('click', () => go(b.dataset
 document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
 // ---- Navigationsblase unten: folgt dem aktiven Tab (und dem Finger beim Wischen) -----------------
 const pill = document.createElement('i');
-pill.className = 'pill';
+pill.className = 'tabpill';
 $('#tabs').prepend(pill);
-let pillShown = false;
+let pillShown = false, geo = null;
+const movingOn = () => document.documentElement.classList.add('moving');
+const movingOff = () => document.documentElement.classList.remove('moving');
+function measurePill() {
+  const bs = $$('#tabs button');
+  geo = bs.map((b) => ({ x: b.offsetLeft, w: b.offsetWidth, h: b.offsetHeight, top: b.offsetTop }));
+  if (geo[0]) { pill.style.width = geo[0].w + 'px'; pill.style.height = geo[0].h + 'px'; pill.style.top = geo[0].top + 'px'; }
+}
 function placePill(pos, animate = true) {
-  const nav = $('#tabs'); if (nav.hidden) { pillShown = false; return; }
-  const bs = $$('#tabs button'), lo = Math.floor(pos), hi = Math.min(bs.length - 1, Math.ceil(pos)), f = pos - lo;
-  const b0 = bs[Math.max(0, lo)], b1 = bs[hi];
-  const x = b0.offsetLeft + (b1.offsetLeft - b0.offsetLeft) * f;
-  pill.style.width = b0.offsetWidth + 'px'; pill.style.height = b0.offsetHeight + 'px'; pill.style.top = b0.offsetTop + 'px';
+  if ($('#tabs').hidden) { pillShown = false; geo = null; return; }
+  if (!geo || geo[0].w === 0) measurePill();
+  const lo = Math.max(0, Math.floor(pos)), hi = Math.min(geo.length - 1, Math.ceil(pos)), f = pos - Math.floor(pos);
+  const x = geo[lo].x + (geo[hi].x - geo[lo].x) * f;
   pill.style.transition = animate && pillShown ? '' : 'none';
-  pill.style.transform = `translateX(${x}px)`;
+  pill.style.transform = `translate3d(${x}px,0,0)`;
   pillShown = true;
 }
-window.addEventListener('resize', () => placePill(TABS.indexOf(tab), false));
+window.addEventListener('resize', () => { geo = null; placePill(TABS.indexOf(tab), false); });
 
 // ---- Wischgesten: Seite folgt dem Finger; seitlich zwischen Tabs wechseln, vom linken Rand zurück ------
 (() => {
@@ -404,7 +412,6 @@ window.addEventListener('resize', () => placePill(TABS.indexOf(tab), false));
     return false;
   };
   const setApp = (tx, op, ms) => { app.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.8,.2,1), opacity ${ms}ms` : 'none'; app.style.transform = tx ? `translateX(${tx}px)` : ''; app.style.opacity = op == null ? '' : String(op); };
-  const clear = () => { app.style.transition = 'none'; app.style.transform = ''; app.style.opacity = ''; };
   const W = () => window.innerWidth;
   document.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) { s = null; return; }
@@ -422,6 +429,7 @@ window.addEventListener('resize', () => placePill(TABS.indexOf(tab), false));
         else if (!sub && !$('#tabs').hidden && !weekEdit && !blocked(s.el)) s.mode = 'tab';
       }
       if (s.mode === 'none') return;
+      movingOn();
     }
     if (e.cancelable) e.preventDefault();
     if (s.mode === 'edge') {
@@ -443,15 +451,15 @@ window.addEventListener('resize', () => placePill(TABS.indexOf(tab), false));
     if (st.mode === 'edge') {
       if (!cancelled && (dx > W() * 0.3 || vel > 0.5) && dx > 40) {
         setApp(W() * 0.35, 0, 150);
-        setTimeout(() => { clear(); go('back'); }, 150);
-      } else { setApp(0, 1, 260); }
+        setTimeout(() => go('back'), 150);
+      } else { setApp(0, 1, 260); setTimeout(movingOff, 280); }
       return;
     }
     const n = i + (dx < 0 ? 1 : -1);
     if (!cancelled && n >= 0 && n < TABS.length && (Math.abs(dx) > W() * 0.25 || Math.abs(vel) > 0.45) && Math.abs(dx) > 40) {
       setApp(dx < 0 ? -50 : 50, 0, 140);
-      setTimeout(() => { clear(); go(TABS[n]); }, 140);
-    } else { setApp(0, 1, 260); placePill(i, true); }
+      setTimeout(() => go(TABS[n]), 140);
+    } else { setApp(0, 1, 260); placePill(i, true); setTimeout(movingOff, 280); }
   };
   document.addEventListener('touchend', (e) => finish(e, false), { passive: true });
   document.addEventListener('touchcancel', (e) => finish(e, true), { passive: true });

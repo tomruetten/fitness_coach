@@ -220,5 +220,9 @@ nav button svg{width:24px;height:24px}
 html,body{overscroll-behavior-x:none}#app{will-change:auto}
 
 nav#tabs{overflow:visible}nav#tabs button{position:relative;z-index:1}
-nav#tabs .pill{position:absolute;left:0;top:6px;border-radius:28px;background:rgba(255,255,255,.82);box-shadow:0 2px 10px rgba(40,50,90,.14),inset 0 1px 0 #fff;pointer-events:none;z-index:0;transition:transform .5s cubic-bezier(.34,1.35,.5,1),width .3s ease;will-change:transform}
+nav#tabs .tabpill{position:absolute;left:0;top:6px;border-radius:28px;background:rgba(255,255,255,.86);box-shadow:0 2px 10px rgba(40,50,90,.14),inset 0 1px 0 #fff;pointer-events:none;z-index:0;transition:transform .42s cubic-bezier(.3,1.0,.35,1.12);will-change:transform;backface-visibility:hidden}
 nav#tabs button svg{transition:transform .35s cubic-bezier(.34,1.5,.5,1)}nav#tabs button.on svg{transform:scale(1.08)}
+
+nav#tabs{transform:translateZ(0)}
+/* Während Wisch- und Übergangsanimationen kein Hintergrund-Weichzeichnen auf den vielen Karten (spart auf dem iPhone viel Rechenzeit) */
+html.moving .card,html.moving .ccard,html.moving .kpi,html.moving .pill,html.moving .day,html.moving .prog3,html.moving .info,html.moving .addbtn,html.moving .chips button,html.moving .seg{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(255,255,255,.9)}
