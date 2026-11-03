@@ -209,3 +209,6 @@ nav button svg{width:24px;height:24px}
 .menu button{display:flex;align-items:center;gap:10px;height:42px;padding:0 12px;border:0;border-radius:12px;background:none;font-size:15px;font-weight:500;color:var(--ink);text-align:left}
 .menu button.on{background:rgba(120,120,128,.12);font-weight:600}
 @keyframes pop{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+.menu button svg{flex:none}
+.menu button[data-status=""] svg{color:#FF9500}.menu button[data-status="done"] svg{color:#34C759}.menu button[data-status="skipped"] svg{color:#FF3B30}
+#app{padding-top:calc(env(safe-area-inset-top) + 44px)}
