@@ -181,7 +181,7 @@ async function viewDay(app, { date, nav }) {
       ${!past ? '<div class="card info"><div class="ico">' + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg></div><div><b>Vorläufig</b><p>Das ist der geplante Ablauf. Am Tag selbst passt die App die Einheit an deine Erholung an, etwa bei schlechtem Schlaf oder hoher Belastung.</p></div></div>' : ''}
       ${(p.why || []).length ? infoCard({ plan: p, readiness: { signals: [] } }) : ''}
 `;
-    $('[data-act=back]', app).onclick = () => nav('week');
+    $('[data-act=back]', app).onclick = () => nav('back');
     bindStatus(app, date, () => { store.del('c_week'); viewDay(app, { date, nav }); });
   };
   const cached = store.get('c_week');
@@ -319,9 +319,27 @@ async function autoSync(force = false) {
 // ---- Navigation ------------------------------------------------------------
 const views = { today: ['c_today', '/today', drawToday], week: ['c_week', '/week', drawWeek] };
 let renderId = 0;
+// Verlauf für „Zurück“: jeder Wechsel legt den vorherigen Zustand ab, damit Zurück dort landet, wo du warst.
+const TABS = ['today', 'week', 'analysis', 'more'];
+const hist = [];
+let dir = 0; // Richtung der nächsten Übergangsanimation: 1 = vor, -1 = zurück
+function push() { hist.push({ tab, sub }); if (hist.length > 30) hist.shift(); }
 function go(view, o = {}) {
-  if (['today', 'week', 'analysis', 'more'].includes(view)) { sub = null; tab = view; } else sub = { view, ...o };
+  if (view === 'back') {
+    const prev = hist.pop(); if (!prev) return false;
+    tab = prev.tab; sub = prev.sub; dir = -1;
+  } else if (view === 'home') { // zurück auf die zuletzt besuchte Hauptansicht, auch über mehrere Unterseiten hinweg
+    while (hist.length && hist[hist.length - 1].sub) hist.pop();
+    const prev = hist.pop();
+    if (prev) tab = prev.tab;
+    sub = null; dir = -1;
+  } else if (TABS.includes(view)) {
+    if (tab !== view || sub) push();
+    dir = TABS.indexOf(view) >= TABS.indexOf(tab) ? 1 : -1;
+    sub = null; tab = view;
+  } else { push(); sub = { view, ...o }; dir = 1; }
   render();
+  return true;
 }
 async function render() {
   const my = ++renderId;
@@ -332,6 +350,8 @@ async function render() {
   $('#tabs').hidden = !!sub;
   app.classList.toggle('sub', !!sub);
   window.scrollTo(0, 0);
+  if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) app.animate([{ transform: `translateX(${dir * 26}px)`, opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  dir = 0;
   try {
     if (sub) { const f = sub.view === 'log' ? viewLog : sub.view === 'day' ? viewDay : viewPrep; await f(app, { ...sub, nav: go }); return; }
     if (tab === 'more') { await viewMore(); return; }
@@ -349,10 +369,38 @@ async function start() {
     const offline = e instanceof TypeError;
     app.innerHTML = `<div class="center"><h1>${offline ? 'Offline' : 'Serverfehler'}</h1><p class="lead">${offline ? 'Keine Verbindung zum Server.' : esc(e.message)}</p>${hint}<button class="pri" onclick="location.reload()">Erneut versuchen</button></div>`; return; }
   if (!st.authed) return showAuth(st);
-  sub = null; $('#tabs').hidden = false; render(); autoSync();
+  sub = null; hist.length = 0; $('#tabs').hidden = false; render(); autoSync();
   api('/week').then((d) => store.set('c_week', d)).catch(() => {});
 }
-$$('#tabs button').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; sub = null; render(); }));
+$$('#tabs button').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('visibilitychange', () => { if (document.hidden || $('#tabs').hidden) return; if (tab === 'today' || tab === 'week') render(); autoSync(); });
+// ---- Wischgesten: seitlich zwischen Tabs wechseln, vom linken Rand zurück ------------------------
+(() => {
+  let s = null;
+  const blocked = (el) => {
+    if (!el || !el.closest) return false;
+    if (el.closest('svg, input, textarea, select, .sheet, .menu, .grip, [data-noswipe]')) return true;
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 4 && /(auto|scroll)/.test(getComputedStyle(n).overflowX)) return true;
+    }
+    return false;
+  };
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { s = null; return; }
+    const t0 = e.touches[0];
+    s = { x: t0.clientX, y: t0.clientY, t: Date.now(), el: e.target };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!s) return;
+    const t1 = e.changedTouches[0], dx = t1.clientX - s.x, dy = t1.clientY - s.y, dt = Date.now() - s.t;
+    const st = s; s = null;
+    if (dt > 700 || Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+    if ($('.sheet-wrap.open')) return;
+    if (st.x <= 28 && dx > 0) { go('back'); return; }
+    if (sub || $('#tabs').hidden || weekEdit || blocked(st.el)) return;
+    const i = TABS.indexOf(tab), n = i + (dx < 0 ? 1 : -1);
+    if (n >= 0 && n < TABS.length) go(TABS[n]);
+  }, { passive: true });
+})();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 start();

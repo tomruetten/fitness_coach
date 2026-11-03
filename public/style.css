@@ -216,3 +216,5 @@ nav button svg{width:24px;height:24px}
 .why{margin:4px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}.why li{position:relative;padding-left:12px;font-size:13px;line-height:18px;color:var(--mute2)}.why li::before{content:"";position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:var(--acc);opacity:.55}
 .fitcard .fine{margin:10px 0 0;font-size:12.5px;line-height:17px;color:var(--mute2)}.fitcard .fine b{color:var(--ink)}
 .fitcard .kv{gap:22px;margin-top:2px}
+
+html,body{overscroll-behavior-x:none}#app{will-change:auto}

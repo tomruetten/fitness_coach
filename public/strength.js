@@ -96,7 +96,7 @@ export async function viewPrep(app, { kind, nav }) {
   const persist = async () => { await api('/strength/template', { kind, exercises: list }); };
   const bind = () => {
     $$('[data-kind]', app).forEach((b) => b.addEventListener('click', async () => { if (b.dataset.kind !== kind) { edit = false; adding = false; await load(b.dataset.kind).catch((e) => toast(e.message)); } }));
-    $('[data-act=back]', app).onclick = () => nav('today');
+    $('[data-act=back]', app).onclick = () => nav('back');
     $('[data-act=edit]', app).onclick = async () => {
       if (edit) { try { await persist(); await load(kind, true); } catch (e) { toast(e.message); } edit = false; draw(); } else { edit = true; draw(); }
     };
@@ -169,7 +169,7 @@ export async function viewLog(app, { kind, blank, nav }) {
   };
   const upd = () => { save(); const y = window.scrollY; draw(); window.scrollTo(0, y); };
   const bind = () => {
-    $('[data-act=back]', app).onclick = () => { clearInterval(viewLog.tm); nav('today'); };
+    $('[data-act=back]', app).onclick = () => { clearInterval(viewLog.tm); nav('back'); };
     $$('[data-open]', app).forEach((b) => b.addEventListener('click', () => { const i = Number(b.dataset.open); st.open = st.open === i ? -1 : i; armed = -1; picking = null; upd(); }));
     $$('[data-k]', app).forEach((b) => b.addEventListener('click', () => { const [e, i, d] = b.dataset.k.split('.').map(Number); const x = st.data[e].sets[i]; x[0] = Math.max(0, Math.round((x[0] + d * stepKg) * 10) / 10); upd(); }));
     $$('[data-r]', app).forEach((b) => b.addEventListener('click', () => { const [e, i, d] = b.dataset.r.split('.').map(Number); const x = st.data[e].sets[i]; x[1] = Math.max(0, x[1] + d * (st.data[e].timed ? 5 : 1)); upd(); }));
@@ -198,7 +198,7 @@ export async function viewLog(app, { kind, blank, nav }) {
         await api('/strength/sets', { date: s.date, kind: kind === 'strength_x' ? null : kind, exercises, notes });
         store.del(dk); ['c_today', 'c_week'].forEach((k) => store.del(k));
         Object.keys(localStorage).filter((k) => k.startsWith('c_ana_')).forEach((k) => store.del(k));
-        clearInterval(viewLog.tm); toast('Training gespeichert'); nav('today');
+        clearInterval(viewLog.tm); toast('Training gespeichert'); nav('home');
       } catch (e) { b.disabled = false; toast(e.message); }
     };
   };
