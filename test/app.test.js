@@ -32,6 +32,12 @@ test('heute, woche, trends, einstellungen laufen mit leerer Datenbank', async ()
   }
   const w = await (await t.call('/api/week')).json();
   assert.equal(w.week.length, 7);
+  assert.equal(typeof w.target_km, 'number');
+  const td = await (await t.call('/api/today')).json();
+  assert.ok(Array.isArray(td.readiness.parts) && 'score' in td.readiness);
+  assert.equal(td.fitness.history.length, 8);
+  const tr = await (await t.call('/api/trends?range=month')).json();
+  assert.ok(Array.isArray(tr.marks) && Array.isArray(tr.insights));
   assert.ok(w.week.some((d) => d.kind === 'spinning' && d.weekday === 'Dienstag'));
   t.close();
 });

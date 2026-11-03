@@ -72,6 +72,39 @@ function lastLogsByExercise(strengthLog) {
 }
 
 /** Readiness-Zusammenfassung für das Dashboard und die Regeln. */
+const clampN = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+/** Transparenter Erholungswert 0–100: Abzüge für HRV, Ruhepuls, Schlaf, Belastung, Anstrengung und Schmerz. */
+function recoveryScore({ rec, days, date, acwr, hardRpe, pain }) {
+  const latest = (k) => [...days].filter((d) => d.date <= date && Number.isFinite(d[k]) && diffDays(date, d.date) <= 3).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const parts = [];
+  let pen = 0, any = false;
+  const st = (v, good, mid) => (v <= good ? 'good' : v <= mid ? 'medium' : 'low');
+  if (rec.hrvNow != null && rec.hrvMean != null && rec.hrvSd) {
+    const z = Math.log(rec.hrvNow / rec.hrvMean) / (rec.hrvSd / rec.hrvMean);
+    pen += clampN(-z, 0, 3) * 8; any = true;
+    parts.push({ key: 'hrv', label: 'HRV', value: `${Math.round(latest('hrv_avg')?.hrv_avg ?? rec.hrvNow)} ms`, status: st(-z, 0.5, 1) });
+  }
+  if (rec.rhrNow != null && rec.rhrBase != null) {
+    const dlt = rec.rhrNow - rec.rhrBase;
+    pen += clampN(dlt, 0, 10) * 2; any = true;
+    parts.push({ key: 'rhr', label: 'Ruhepuls', value: `${Math.round(latest('resting_hr')?.resting_hr ?? rec.rhrNow)} bpm`, status: st(dlt, 2, 5) });
+  }
+  const sl = latest('sleep_s');
+  if (sl && sl.sleep_s > 0) {
+    const h = sl.sleep_s / 3600;
+    pen += clampN(7.5 - h, 0, 3) * 7; any = true;
+    parts.push({ key: 'sleep', label: 'Schlaf', value: `${h.toFixed(1).replace('.', ',')} h`, status: h >= 7 ? 'good' : h >= 6.5 ? 'medium' : 'low' });
+  }
+  if (acwr != null) {
+    pen += clampN((acwr - 1.3) * 40, 0, 20); any = true;
+    parts.push({ key: 'load', label: 'Belastung', value: acwr.toFixed(2).replace('.', ','), status: acwr <= 1.3 ? 'good' : acwr <= 1.5 ? 'medium' : 'low' });
+  }
+  if (hardRpe) pen += 8;
+  if (pain) pen += Math.min(15, pain.level * 2);
+  return { score: any ? Math.round(clampN(100 - pen, 0, 100)) : null, parts };
+}
+
 export function readiness(ctx) {
   const settings = withDefaults(ctx.settings);
   const date = ctx.date;
@@ -87,7 +120,8 @@ export function readiness(ctx) {
   const pain = (ctx.pain || []).find((p) => diffDays(date, p.date) >= 0 && diffDays(date, p.date) <= 7 && p.level >= RULES.painThreshold);
   if (pain) signals.push({ id: 'R-PAIN', text: `Schmerz ${pain.level} von 10 gemeldet am ${pain.date}${pain.area ? ` (${pain.area})` : ''}` });
   const level = signals.length >= 2 ? 'low' : signals.length === 1 ? 'medium' : 'good';
-  return { level, signals, acwr: ac.ratio, acute: ac.acute * 7, chronicWeekly: ac.chronic * 7, form: ac.form, monotony: ac.monotony, hrv: { now: rec.hrvNow, mean: rec.hrvMean, sd: rec.hrvSd }, rhr: { now: rec.rhrNow, base: rec.rhrBase }, settings };
+  const rs = recoveryScore({ rec, days: ctx.days || [], date, acwr: ac.ratio, hardRpe: !!hard, pain });
+  return { level, score: rs.score, parts: rs.parts, signals, acwr: ac.ratio, acute: ac.acute * 7, chronicWeekly: ac.chronic * 7, form: ac.form, monotony: ac.monotony, hrv: { now: rec.hrvNow, mean: rec.hrvMean, sd: rec.hrvSd }, rhr: { now: rec.rhrNow, base: rec.rhrBase }, settings };
 }
 
 /** Alles, was für die Läufe einer Woche gleich bleibt: Leistungsstand und Wochenumfang/Zyklus. */

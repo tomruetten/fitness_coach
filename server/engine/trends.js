@@ -92,7 +92,65 @@ export function trends(ctx, range = 'month') {
   const tz = total.reduce((a, c) => a + c, 0);
   out.z12 = tz ? Math.round(((total[0] + total[1]) / tz) * 100) : null;
   out.kpis = { runs, km: r1(km), time_s: Math.round(time) };
+  out.marks = marksOf({ list, activities, settings, date, km: out.km });
+  out.insights = insightsOf({ out, days, date });
   return out;
+}
+
+const STD = [[5000, 'Rennen/Test 5 km'], [10000, 'Rennen/Test 10 km'], [21097, 'Rennen/Test Halbmarathon'], [42195, 'Marathon']];
+
+/** Marker für die Diagramme: Entlastung, harte Belege (Rennen/Test), ausgefallene Einheiten. */
+function marksOf({ list, activities, settings, date, km }) {
+  const marks = [];
+  const idxOf = (d) => list.findIndex((b) => d >= b.from && d <= b.to);
+  const weekly = list.length && diffDays(list[0].to, list[0].from) === 6;
+  if (weekly) {
+    for (let i = 3; i < list.length; i++) {
+      const prev = km.slice(Math.max(0, i - 3), i).filter((v) => v != null);
+      if (km[i] != null && prev.length >= 2 && !list[i].future && km[i] < 0.75 * mean(prev) && km[i] >= 0.3 * mean(prev) && list[i].to < date) marks.push({ i, kind: 'deload', label: 'Entlastungswoche' });
+    }
+  }
+  for (const a of activities) {
+    if (a.sport !== 'running' || !a.avg_hr || a.avg_hr / settings.lthr < 0.95 || a.local_date > date) continue;
+    const i = idxOf(a.local_date);
+    if (i < 0) continue;
+    const hit = STD.find(([m]) => Math.abs(a.distance_m - m) / m < 0.04);
+    const test = a.duration_s >= 1750 && a.duration_s <= 2000 && a.distance_m > 4500;
+    if (hit) marks.push({ i, kind: 'race', label: hit[1], date: a.local_date });
+    else if (test) marks.push({ i, kind: 'test', label: '30-Minuten-Test', date: a.local_date });
+  }
+  const skipped = Object.entries(settings._status || {}).filter(([d, s]) => s === 'skipped' && d <= date);
+  if (weekly && list.length === 7) for (const [d] of skipped) { const i = idxOf(d); if (i >= 0) marks.push({ i, kind: 'skip', label: 'Ausgefallen', date: d }); }
+  else for (const [d] of skipped) { const i = idxOf(d); if (i >= 0 && !marks.some((m) => m.i === i && m.kind === 'skip')) marks.push({ i, kind: 'skip', label: 'Ausgefallene Einheit', date: d }); }
+  return marks;
+}
+
+/** Auffälligkeiten in Worten, jeweils mit Ton (good/warn/info) und Bereich (run/health). */
+function insightsOf({ out, days, date }) {
+  const list = [];
+  const recent = days.filter((d) => d.date <= date && diffDays(date, d.date) <= 14).sort((a, b) => b.date.localeCompare(a.date));
+  const streak = (key, test) => { let n = 0; for (const d of recent) { if (!Number.isFinite(d[key])) continue; if (test(d[key])) n++; else break; } return n; };
+  if (out.hrv_band) {
+    const n = streak('hrv_avg', (v) => v < out.hrv_band[0]);
+    if (n >= 3) list.push({ area: 'health', tone: 'warn', title: `HRV seit ${n} Tagen unter Normalbereich`, text: 'Dein Körper erholt sich langsamer als sonst. Der Plan hält Intensität zurück, bis sie wieder im Bereich liegt.' });
+    else if (recent.length && streak('hrv_avg', (v) => v >= out.hrv_band[0]) >= 5 && out.avg.hrv) list.push({ area: 'health', tone: 'good', title: 'HRV im Normalbereich', text: `Ø ${out.avg.hrv} ms, stabil seit mindestens 5 Tagen.` });
+  }
+  if (out.rhr_band) {
+    const n = streak('resting_hr', (v) => v > out.rhr_band[1]);
+    if (n >= 3) list.push({ area: 'health', tone: 'warn', title: `Ruhepuls seit ${n} Tagen erhöht`, text: 'Ein erhöhter Ruhepuls über mehrere Tage deutet auf Müdigkeit, Stress oder beginnende Infekte hin.' });
+  }
+  const sl = recent.slice(0, 7).map((d) => d.sleep_s).filter((v) => v > 0);
+  if (sl.length >= 4 && mean(sl) < 6.5 * 3600) list.push({ area: 'health', tone: 'warn', title: 'Wenig Schlaf diese Woche', text: `Im Schnitt ${r1(mean(sl) / 3600)} h. Unter 7 h bremst die Anpassung an das Training spürbar.` });
+  const ac = out.acwr.filter((v) => v != null).at(-1);
+  if (ac != null && ac > 1.3) list.push({ area: 'run', tone: 'warn', title: `Belastungsverhältnis ${String(ac).replace('.', ',')}`, text: 'Die letzte Woche war deutlich härter als dein Schnitt. Ab 1,5 steigt das Verletzungsrisiko merklich.' });
+  const v = out.vdot.filter((x) => x != null);
+  if (v.length >= 2) {
+    const dv = r1(v.at(-1) - v[0]);
+    if (Math.abs(dv) >= 0.8) list.push({ area: 'run', tone: dv > 0 ? 'good' : 'info', title: `VDOT ${dv > 0 ? '+' : ''}${String(dv).replace('.', ',')} im Zeitraum`, text: dv > 0 ? 'Deine Leistungsfähigkeit steigt, die Tempi im Plan ziehen mit.' : 'Dein Leistungsstand ist leicht gesunken. Ein harter Lauf oder Test hilft, ihn neu zu verankern.' });
+  }
+  if (out.z12 != null && out.z12 < 70) list.push({ area: 'run', tone: 'info', title: `Nur ${out.z12} % locker`, text: 'Etwa 80 % der Laufzeit sollten locker sein. Mehr Ruhe macht die harten Einheiten wirksamer.' });
+  const order = { warn: 0, info: 1, good: 2 };
+  return list.sort((a, b) => order[a.tone] - order[b.tone]).slice(0, 4);
 }
 
 export { diffDays };

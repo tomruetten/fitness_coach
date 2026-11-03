@@ -24,6 +24,17 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 /** @param {{store?:object, garmin?:()=>GarminClient, serveStatic?:boolean}} o */
 const fitnessOut = ({ lthr, ...f }) => f;
 
+/** VDOT der letzten 8 Wochen im Wochenabstand, für die Mini-Kurve auf der Startseite. */
+function vdotHistory(ctx, settings) {
+  const out = [];
+  for (let i = 7; i >= 0; i--) {
+    const d = addDays(ctx.date, -7 * i);
+    const f = fitnessState({ activities: ctx.activities.filter((a) => a.local_date <= d), days: ctx.days.filter((x) => x.date <= d), settings, asOf: d });
+    out.push(f.source === 'läufe' ? f.vdot : null);
+  }
+  return out;
+}
+
 export function createApp({ store = getStore(), garmin = null, serveStatic = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
@@ -118,7 +129,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
-    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, fitness: fitnessOut(pc.fit), cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || null, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history: vdotHistory(ctx, rd.settings) }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -127,7 +138,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const plans = planWeek({ ...ctx, today: ctx.today });
     const dates = weekDates(ctx.date);
     const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, load: a.load })) }));
-    res.json({ today: ctx.today, lthr: ctx.settings.lthr, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
+    const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
+    const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
+    res.json({ today: ctx.today, lthr: ctx.settings.lthr, target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => ({ ...p, status: ctx.settings._status?.[p.date] || null })) });
   }));
 
   app.get('/api/activities', wrap(async (req, res) => {
@@ -260,7 +273,9 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
   app.get('/api/settings', wrap(async (req, res) => {
     const s = await loadSettings(store);
     const { _z2from, _z2to, _z4from, ...out } = s;
-    res.json(out);
+    const ctx = await loadContext(store);
+    const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
+    res.json({ ...out, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};

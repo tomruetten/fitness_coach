@@ -227,3 +227,81 @@ nav#tabs{transform:translateZ(0)}
 /* Während Wisch- und Übergangsanimationen kein Hintergrund-Weichzeichnen auf den vielen Karten (spart auf dem iPhone viel Rechenzeit) */
 html.moving .card,html.moving .ccard,html.moving .kpi,html.moving .pill,html.moving .day,html.moving .prog3,html.moving .info,html.moving .addbtn,html.moving .chips button,html.moving .seg{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(255,255,255,.9)}
 html.moving nav#tabs,html.moving .bar-fixed{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(255,255,255,.82)}
+
+/* ===== Design-Überarbeitung: Cockpit, Zahlen, Marker, sanfte Zustände ===== */
+:root{--run:#FF6B2C;--str:#AF52DE;--spin:#0A84FF}
+.pills{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -20px -10px;padding:2px 20px 12px}.pills::-webkit-scrollbar{display:none}
+.pill{flex:none;white-space:nowrap}
+/* Ringe */
+.rg{position:relative;flex:none}.rg svg{display:block}
+.rc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.rc b{font-size:34px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.rc small{font-size:11px;font-weight:600;color:var(--mute);margin-top:3px}
+.rc b i{font-style:normal;font-size:14px;color:var(--mute);margin-left:1px}
+/* Heute: Cockpit */
+.cockpit{display:flex;align-items:center;gap:18px;padding:18px}
+.cp-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.cp-adv{font-size:17px;line-height:22px;font-weight:650;letter-spacing:-.015em}
+.cp-parts{display:flex;flex-direction:column;gap:6px}
+.mt{display:flex;align-items:center;gap:8px;font-size:13px}.mt i{width:8px;height:8px;border-radius:50%;flex:none}.mt span{color:var(--mute2);flex:1}.mt b{font-weight:650;font-variant-numeric:tabular-nums}
+.hero{background-image:radial-gradient(120% 90% at 100% 0%,color-mix(in srgb,var(--a,var(--run)) 13%,transparent),transparent 62%)}
+/* Auf-/zuklappbare Hinweise */
+details.fold{display:block;padding:0}
+details.fold>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary b{flex:1;font-size:14px;font-weight:600}
+.cnt{font-size:12px;font-weight:700;color:var(--mute2);background:var(--tint);border-radius:99px;padding:2px 9px}
+.chev{color:var(--mute);transition:transform .25s}details[open]>summary .chev{transform:rotate(180deg)}
+details.fold .why{margin:-4px 18px 16px 58px}
+/* Zahlen als Hauptfiguren */
+.stars{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:12px;align-items:end}
+.star{display:flex;flex-direction:column;gap:2px;min-width:0}.star small{font-size:12px;color:var(--mute);font-weight:500}
+.star strong{font-size:24px;line-height:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.star.main strong{font-size:44px;line-height:46px;letter-spacing:-.045em;color:var(--run)}.star strong em{font-style:normal}
+.dv{font-size:12px;font-weight:600}.dv.up{color:#1f8a43}.dv.down{color:#C93400}
+.kspark{position:relative;height:24px;margin-top:6px}.kspark.wide{height:34px;margin:12px 0 0}
+.kspark svg,svg.spark{display:block;width:100%;height:100%;overflow:visible}
+.spark-dot{position:absolute;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;box-shadow:0 0 0 3px rgba(255,255,255,.8)}
+.kpi b{font-variant-numeric:tabular-nums}.kpi b em{font-style:normal}.ks{font-style:normal;font-size:11.5px;color:var(--mute);font-weight:500;margin-top:1px}
+.chead .big{font-variant-numeric:tabular-nums}.chead .big .num{font:inherit}
+/* Analyse */
+.seg.area button.on{color:var(--area,var(--ink))}
+.chip.rng{background:var(--tint);color:var(--ink);padding:0 10px 0 13px;gap:6px}.chip.rng svg{color:var(--mute)}
+.menu button span{flex:1}
+.insights{display:flex;flex-direction:column;gap:8px}
+.insight{display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-radius:20px;background:var(--glass);-webkit-backdrop-filter:blur(26px) saturate(180%);backdrop-filter:blur(26px) saturate(180%);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow)}
+.insight i{width:10px;height:10px;border-radius:50%;margin-top:5px;flex:none;background:var(--mute)}.insight.warn i{background:#FF9500;box-shadow:0 0 0 4px rgba(255,149,0,.18)}.insight.good i{background:#34C759;box-shadow:0 0 0 4px rgba(52,199,89,.18)}.insight.info i{background:var(--blue);box-shadow:0 0 0 4px rgba(10,132,255,.16)}
+.insight b{font-size:14.5px;font-weight:650}.insight p{margin:2px 0 0;font-size:13px;line-height:18px;color:var(--mute2)}
+details.morecharts{display:flex;flex-direction:column;gap:14px}
+details.morecharts>summary{list-style:none;display:flex;align-items:center;gap:8px;height:48px;padding:0 18px;border-radius:22px;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow);font-size:15px;font-weight:600;cursor:pointer}
+details.morecharts>summary::-webkit-details-marker{display:none}details.morecharts>summary span{flex:1}details.morecharts>summary em{font-style:normal;font-size:12px;font-weight:700;color:var(--mute2);background:var(--tint);border-radius:99px;padding:2px 9px}
+details.morecharts>summary svg{color:var(--mute);transition:transform .25s}details.morecharts[open]>summary svg{transform:rotate(180deg)}
+details.morecharts[open]>summary{margin-bottom:0}.mc{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+/* Marker im Diagramm */
+.mkline{position:absolute;top:0;bottom:0;border-left:1.5px dashed;opacity:.45;pointer-events:none}
+.mk{position:absolute;top:-9px;width:17px;height:17px;margin-left:-8.5px;border-radius:50%;color:#fff;font-size:9.5px;font-weight:800;line-height:17px;text-align:center;box-shadow:0 0 0 2px #fff;pointer-events:none;z-index:1}
+.legend.marks{gap:14px}.mk-s{display:inline-block;width:15px;height:15px;border-radius:50%;color:#fff;font-size:8.5px;line-height:15px;text-align:center;margin-right:5px;font-weight:800}
+.tm{font-size:11px;font-weight:600}
+.bar.ghost{background:transparent;border:1.5px dashed;border-bottom:0;opacity:.28}
+/* Woche */
+.wkcard{display:flex;align-items:center;gap:18px;padding:16px 18px}
+.wk-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.wk-km b{font-size:34px;line-height:38px;font-weight:700;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.wk-km b em{font-style:normal}.wk-km span{font-size:16px;font-weight:600;color:var(--mute)}
+.wk-sub{font-size:12.5px;color:var(--mute)}
+.wk-dots{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:12px;font-weight:600;color:var(--mute2)}.wk-dots i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.rc b em{font-style:normal}
+.pv{display:flex;flex-direction:column;align-items:flex-end;flex:none;min-width:0}.pv b{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.pv small{font-size:11.5px;color:var(--mute);font-weight:500;white-space:nowrap}
+.pv.plan b{color:var(--mute2);font-weight:600}.pv.skip{text-decoration:line-through;opacity:.55}
+.day{gap:12px}.dt small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Sanfte Zustände: Diagramme zeichnen sich ein */
+@keyframes grow{from{transform:scaleY(0)}to{transform:none}}
+@keyframes sweep{from{clip-path:inset(-12px 100% -12px -12px)}to{clip-path:inset(-12px -12px -12px -12px)}}
+@keyframes fadein{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#app.draw .bar:not(.ghost),#app.draw .stack{transform-origin:bottom;animation:grow .7s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0)*45ms)}
+#app.draw svg.trace,#app.draw svg.spark{animation:sweep .9s cubic-bezier(.3,.7,.2,1) backwards}
+#app.draw .dot,#app.draw .spark-dot{animation:fadein .35s ease backwards;animation-delay:calc(.35s + var(--i,0)*50ms)}
+#app.draw .kpi,#app.draw .insight,#app.draw .ccard,#app.draw .cockpit,#app.draw .wkcard,#app.draw .day{animation:rise .5s cubic-bezier(.2,.8,.2,1) backwards}
+#app.draw .ccard:nth-of-type(2),#app.draw .day:nth-child(2),#app.draw .kpi:nth-child(2){animation-delay:.05s}
+#app.draw .ccard:nth-of-type(3),#app.draw .day:nth-child(3),#app.draw .kpi:nth-child(3){animation-delay:.1s}
+#app.draw .day:nth-child(n+4){animation-delay:.15s}
+@media (prefers-reduced-motion:reduce){#app.draw *{animation:none!important}.rg circle{transition:none!important}}

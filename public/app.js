@@ -1,6 +1,8 @@
 import { $, $$, esc, pace, hm, dmy, dec, SPORT, toast, api, store, swr, icon } from './util.js';
 import { viewAnalysis } from './analysis.js';
 import { heuteKraftCard, viewPrep, viewLog } from './strength.js';
+import { ringHtml, spark } from './charts.js';
+import { play, rings } from './motion.js';
 
 const app = $('#app');
 let tab = 'today';
@@ -52,8 +54,26 @@ const ZC = ['#A9C9FF', '#34C759', '#FFCC00', '#FF9500', '#FF3B30'];
 
 function pills(d) {
   const rd = d.readiness, p = d.plan;
-  const lvl = { good: ['Erholung gut', '#34C759'], medium: ['Erholung mittel', '#FF9500'], low: ['Erholung niedrig', '#FF3B30'] }[rd.level];
-  return `<div class="pills">${lvl ? `<span class="pill"><i style="background:${lvl[1]}"></i>${lvl[0]}</span>` : ''}${rd.acwr != null ? `<span class="pill mute">Belastung ${dec(rd.acwr, 2)}</span>` : ''}${p.block ? `<span class="pill mute">${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}</span>` : ''}${p.provisional ? '<span class="pill mute">vorläufig</span>' : ''}</div>`;
+  const items = [p.block ? `${esc(p.block.label)} · Woche ${p.block.week}${p.block.deload ? ' · Entlastung' : ''}` : '', rd.acwr != null ? `Belastung ${dec(rd.acwr, 2)}` : '', p.provisional ? 'vorläufig' : ''].filter(Boolean);
+  return items.length ? `<div class="pills">${items.map((x) => `<span class="pill mute">${x}</span>`).join('')}</div>` : '';
+}
+
+const SCORE_COLOR = (s) => (s >= 75 ? '#34C759' : s >= 50 ? '#FF9500' : '#FF3B30');
+const DOT = { good: '#34C759', medium: '#FF9500', low: '#FF3B30' };
+/** Ein Satz, was heute zu tun ist. */
+function advice(d) {
+  const p = d.plan, rd = d.readiness;
+  if (p.kind === 'rest') return rd.level === 'good' ? 'Ruhetag. Du bist erholt, nutze die Pause zum Auftanken.' : 'Ruhetag. Dein Körper kann ihn gut gebrauchen.';
+  if (rd.level === 'low') return p.adjusted ? 'Dein Körper braucht Erholung. Die Einheit ist entschärft.' : 'Dein Körper braucht Erholung. Geh es heute locker an.';
+  if (rd.level === 'medium') return p.adjusted ? 'Leicht müde. Die Einheit wurde angepasst.' : 'Leicht müde. Hör beim Training auf deinen Körper.';
+  return 'Du bist erholt. Die geplante Einheit passt.';
+}
+function cockpit(d) {
+  const rd = d.readiness, s = rd.score;
+  const color = s != null ? SCORE_COLOR(s) : DOT[rd.level] || '#8E8E93';
+  const center = s != null ? `<b data-count="${s}" data-dec="0">${s}</b><small>Erholung</small>` : '<b>–</b><small>Erholung</small>';
+  const parts = (rd.parts || []).filter((x) => ['hrv', 'rhr', 'sleep'].includes(x.key)).map((x) => `<div class="mt"><i style="background:${DOT[x.status]}"></i><span>${x.label}</span><b>${esc(x.value)}</b></div>`).join('');
+  return `<div class="card cockpit">${ringHtml({ p: s != null ? s / 100 : 0, color, size: 108, sw: 10, center })}<div class="cp-text"><div class="cp-adv">${esc(advice(d))}</div>${parts ? `<div class="cp-parts">${parts}</div>` : ''}</div></div>`;
 }
 
 function runCard(d) {
@@ -68,22 +88,26 @@ function runCard(d) {
     zone = `<div class="zone"><div class="zl"><span>Zielpuls</span><span class="mute">${t.hr_from}–${t.hr_to} bpm</span></div><div class="zb">${ZC.map((c, i) => `<i style="flex:${i === 0 ? 3 : 1};background:${c};opacity:${i === zi ? 1 : 0.4}"></i>`).join('')}</div><div class="zt">${['Z1', 'Z2', 'Z3', 'Z4', 'Z5'].map((z, i) => `<span${i === zi ? ' class="on"' : ''}>${z}</span>`).join('')}</div></div>`;
   }
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
-  return `<div class="card hero"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
+  return `<div class="card hero" style="--a:${color}"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
     ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${zone}
     ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}</div>`;
 }
 function otherCard(d) {
   const p = d.plan, rest = p.kind === 'rest', color = rest ? '#8E8E93' : KIND_COLOR.spinning;
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
-  return `<div class="card hero"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
+  return `<div class="card hero" style="--a:${color}"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
     ${p.targets?.duration_min ? `<div class="bigs"><div><span>Dauer</span><b>${p.targets.duration_min}<small> min</small></b></div></div>` : ''}<p class="blurb">${esc(p.summary || '')}</p>${steps ? `<div class="lines">${steps}</div>` : ''}</div>`;
 }
-function infoCard(d) {
+const CHEV = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+function infoCard(d, collapsible = false) {
   const p = d.plan, rd = d.readiness, why = p.why || [];
   const adjusted = !!p.adjusted;
   const lines = why.length ? why.map((w) => w.text) : rd.signals?.length ? rd.signals.map((s) => s.text) : ['Erholung und Belastung liegen im Normalbereich.'];
   const title = adjusted ? 'Heute angepasst' : why.length ? 'So wurde geplant' : 'Heute nicht angepasst';
-  return `<div class="card info"><div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div><div><b>${title}</b><ul class="why">${lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>`;
+  const ico = '<div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>';
+  const list = `<ul class="why">${lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  if (collapsible) return `<details class="card info fold" data-why>${`<summary>${ico}<b>${title}</b><span class="cnt">${lines.length}</span>${CHEV}</summary>`}${list}</details>`;
+  return `<div class="card info">${ico}<div><b>${title}</b>${list}</div></div>`;
 }
 
 const hms = (s) => `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -92,7 +116,11 @@ function fitCard(d) {
   const c = d.cycle;
   const conf = { hoch: 'hoch', mittel: 'mittel', niedrig: 'niedrig' }[f.confidence];
   const evid = f.anchor ? `Beleg vom ${f.anchor.date.slice(8, 10)}.${f.anchor.date.slice(5, 7)}.` : 'noch ohne harten Lauf';
-  return `<h2>Leistungsstand</h2><div class="card fitcard"><div class="kv"><div><small>VDOT</small><strong>${dec(f.vdot, 1)}</strong></div><div><small>Halbmarathon-Prognose</small><strong>${hms(f.predictions.hm)}</strong></div><div><small>Schwelle</small><strong>${pace(f.paces.threshold)}</strong></div></div>
+  const delta = f.history?.filter((x) => x != null);
+  const dv = delta && delta.length >= 2 ? Math.round((delta.at(-1) - delta[0]) * 10) / 10 : null;
+  return `<h2>Leistungsstand</h2><div class="card fitcard"><div class="stars"><div class="star main"><small>VDOT</small><strong><em data-count="${f.vdot}" data-dec="1">${dec(f.vdot, 1)}</em></strong>${dv != null && Math.abs(dv) >= 0.1 ? `<span class="dv ${dv > 0 ? 'up' : 'down'}">${dv > 0 ? '▲' : '▼'} ${dec(Math.abs(dv), 1)} in 8 Wochen</span>` : ''}</div>
+    <div class="star"><small>Halbmarathon</small><strong>${hms(f.predictions.hm)}</strong></div><div class="star"><small>Schwelle</small><strong>${pace(f.paces.threshold)}</strong></div></div>
+    ${f.history?.filter((x) => x != null).length >= 2 ? `<div class="kspark wide">${spark(f.history, KIND_COLOR.running)}</div>` : ''}
     <p class="fine">Locker ${pace(f.paces.easy)} · Intervall ${pace(f.paces.interval)} /km · ${evid} · Sicherheit ${conf}</p>
     ${c ? `<p class="fine"><b>${c.deload ? 'Entlastungswoche' : `Belastungswoche ${c.week} von 3`}</b> · Wochenziel ${Math.round(c.target_km)} km (letzte Woche ${Math.round(c.last_km)} km)</p>` : ''}</div>`;
 }
@@ -127,19 +155,15 @@ function bindStatus(root, date, after) {
 function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
-  let html = head + pills(d);
+  let html = head + pills(d) + cockpit(d);
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
-  html += infoCard(d);
   if (g === 'run') html += fitCard(d);
+  html += infoCard(d, true);
   if (d.done.length) html += `<h2>Heute erledigt</h2><div class="card">${d.done.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
-  if (d.thresholdSuggestion) {
-    const s = d.thresholdSuggestion;
-    html += `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App:</div><div class="kv">${s.lthr ? `<div><small>Schwellenpuls</small><strong>${s.lthr}</strong></div>` : ''}${s.lt_pace_s ? `<div><small>Schwellentempo</small><strong>${pace(s.lt_pace_s)}</strong></div>` : ''}</div><button class="sec" id="applyTh">Übernehmen</button></div>`;
-  }
   html += `<button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>`;
   app.innerHTML = html;
   $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
-  $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); render(); } catch (e) { toast(e.message); } });
+  play(app, 'today');
   $('#painBtn')?.addEventListener('click', () => openPain(d.date));
   bindStatus(app, d.date, () => render());
 }
@@ -204,19 +228,28 @@ function drawWeek(d, stale) {
   const c = { run: [0, 0], strength: [0, 0], spin: [0, 0] };
   d.week.forEach((p) => { const g = group(p.kind); if (c[g]) { c[g][1]++; if (isDone(p)) c[g][0]++; } });
   const b0 = d.week[0]?.block;
-  const prog = (l, [a, n], col) => `<div class="pc"><span>${l}</span><b>${a}<small> / ${n}</small></b><div class="pt"><i style="width:${n ? Math.round(a / n * 100) : 0}%;background:${col}"></i></div></div>`;
+  const tgt = d.target_km || 0, dn = d.done_km || 0, pct = tgt ? Math.min(1, dn / tgt) : 0;
+  const dots = [['Laufen', c.run, KIND_COLOR.running], ['Kraft', c.strength, KIND_COLOR.strength], ['Spinning', c.spin, KIND_COLOR.spinning]].filter(([, v]) => v[1]).map(([l, v, col]) => `<span><i style="background:${col}"></i>${l} ${v[0]}/${v[1]}</span>`).join('');
+  const wk = `<div class="card wkcard">${ringHtml({ p: pct, color: KIND_COLOR.running, size: 92, sw: 9, center: `<b><em data-count="${Math.round(pct * 100)}" data-dec="0">${Math.round(pct * 100)}</em><i>%</i></b>` })}<div class="wk-text"><div class="wk-km"><b><em data-count="${dn}" data-dec="1">${dec(dn, 1)}</em></b><span> von ${dec(tgt, tgt % 1 ? 1 : 0)} km</span></div><div class="wk-sub">Laufumfang diese Woche</div><div class="wk-dots">${dots}</div></div></div>`;
   const locked = (p, i) => p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
   const anyMoved = d.week.some((p) => p.moved);
   app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">${dm(dates[0])} – ${dm(dates[6])}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div><button type="button" class="textbtn" id="wedit">${weekEdit ? 'Fertig' : 'Bearbeiten'}</button></div>
-    ${weekEdit ? '<p class="foot edit-hint">Ziehe eine Einheit am Griff auf einen anderen Tag oder tippe zwei Tage nacheinander an, um sie zu tauschen. Spinning und vergangene Tage bleiben fest.</p>' : `<div class="card prog3">${prog('Laufen', c.run, '#FF6B2C')}${prog('Kraft', c.strength, '#AF52DE')}${prog('Spinning', c.spin, '#0A84FF')}</div>`}
+    ${weekEdit ? '<p class="foot edit-hint">Ziehe eine Einheit am Griff auf einen anderen Tag oder tippe zwei Tage nacheinander an, um sie zu tauschen. Spinning und vergangene Tage bleiben fest.</p>' : wk}
     <div class="days${weekEdit ? ' editing' : ''}" id="days">${w.map((p, i) => {
     const g = group(p.kind), t = p.targets || {}, today = dates[i] === d.today, rest = g === 'rest', lock = locked(p, i);
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
     const moved = weekEdit ? p.date !== dates[i] || p.moved : p.moved;
-    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), t.distance_km && g === 'run' ? dec(t.distance_km, 1) + ' km' : '', t.duration_min && g !== 'run' ? t.duration_min + ' min' : '', moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
-    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
+    const meta = [rest ? '' : (p.title || '').replace(/^Kraft [AB]: /, ''), moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    const act = d.week[i].done || [];
+    const unit = g === 'run' ? 'km' : 'min';
+    const planV = g === 'run' ? t.distance_km : t.duration_min;
+    const actV = g === 'run' ? act.filter((x) => x.sport === 'running').reduce((s, x) => s + (x.distance_m || 0), 0) / 1000 : act.reduce((s, x) => s + (x.duration_s || 0), 0) / 60;
+    const fmtV = (v) => (g === 'run' ? dec(v, 1) : String(Math.round(v)));
+    const pv = rest || weekEdit || (!planV && !(actV > 0)) ? '' : actV > 0.05 ? `<div class="pv"><b style="color:${col}">${fmtV(actV)}</b><small>${planV ? `/ ${fmtV(planV)} ` : ''}${unit}</small></div>` : `<div class="pv plan${d.week[i].status === 'skipped' ? ' skip' : ''}"><b>${fmtV(planV)}</b><small>${unit}</small></div>`;
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>
     ${weekEdit && (anyMoved || weekEdit.order.some((p, i) => p.date !== dates[i])) ? '<button type="button" class="link" id="wreset">Auf Standardwoche zurücksetzen</button>' : ''}`;
+  if (!weekEdit) play(app, 'week'); else rings(app, false);
   $$('.day[data-open]', app).forEach((r) => r.addEventListener('click', (ev) => {
     if (ev.target.closest('.ring')) return;
     if (r.dataset.kind) go('prep', { kind: r.dataset.kind }); else go('day', { date: r.dataset.open });
@@ -272,7 +305,9 @@ async function viewMore(isCurrent = () => true) {
   if (isCurrent() && JSON.stringify(fresh) !== JSON.stringify(cached) && !app.contains(document.activeElement && document.activeElement.matches('input') ? document.activeElement : null)) draw(fresh);
   function draw({ s, st }) {
     const g = s.goal || {};
-    app.innerHTML = `<div class="head"><h1>Profil</h1></div><h2>Ziel</h2><div class="card">
+    const ts = s.thresholdSuggestion;
+    const sugg = ts && ts.lthr && ts.lthr !== s.lthr ? `<h2>Schwellenwerte</h2><div class="card"><div>Aus deinen letzten harten Läufen schätzt die App einen neuen Schwellenpuls:</div><div class="kv"><div><small>Vorschlag</small><strong>${ts.lthr} bpm</strong></div><div><small>Aktuell</small><strong>${s.lthr} bpm</strong></div></div><button class="sec" id="applyTh">Übernehmen</button></div>` : '';
+    app.innerHTML = `<div class="head"><h1>Profil</h1></div>${sugg}<h2>Ziel</h2><div class="card">
       <div class="row"><span>Halbmarathon-Zeit</span><input class="txt" id="gt" style="width:110px;margin:0" value="${Math.floor(g.time_s / 3600)}:${String(Math.floor(g.time_s % 3600 / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}"></div>
       <div class="row"><span>Wettkampfdatum</span><input class="txt" id="gd" type="date" style="width:160px;margin:0" value="${g.date || ''}"></div>
       <div class="row"><span>Schwellenpuls</span><input class="txt" id="lthr" type="number" style="width:90px;margin:0" value="${s.lthr}"></div>
@@ -283,6 +318,7 @@ async function viewMore(isCurrent = () => true) {
     <h2>Garmin</h2><div class="card"><div class="muted" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</div><button class="pri" id="sync">Jetzt synchronisieren</button><button class="sec" id="hist">Verlauf ab 01.01. laden</button></div>
     <h2>Passkeys</h2><div class="card">${(st.passkeys || []).map((k) => `<div class="row"><span>${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10))}</span></div>`).join('')}<button class="sec" id="addPk">Dieses Gerät hinzufügen</button></div>
     <button class="sec" id="out">Abmelden</button>`;
+    $('#applyTh')?.addEventListener('click', async () => { try { await api('/threshold/apply', {}); toast('Übernommen'); ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k)); render(); } catch (e) { toast(e.message); } });
     const parseT = (v) => { const p = v.split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
     $('#saveS').onclick = async () => {
       try { await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT($('#ltp').value), easy_pace_s: parseT($('#ezp').value), goal: { time_s: parseT($('#gt').value), date: $('#gd').value || null } }); toast('Gespeichert'); store.del('c_more'); } catch (e) { toast(e.message); }
@@ -356,7 +392,7 @@ async function render() {
   $$('#tabs button').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   $('#tabs').hidden = !!sub;
   if (!sub) placePill(TABS.indexOf(tab));
-  app.classList.toggle('sub', !!sub);
+  app.classList.toggle('sub', !!sub); app.classList.remove('draw');
   window.scrollTo(0, 0);
   app.style.transition = 'none'; app.style.transform = ''; app.style.opacity = '';
   if (dir && app.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) { movingOn(); const an = app.animate([{ transform: `translateX(${dir * 38}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' }); an.onfinish = an.oncancel = movingOff; } else movingOff();
