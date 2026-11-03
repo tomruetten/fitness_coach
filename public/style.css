@@ -243,7 +243,8 @@ html.moving nav#tabs,html.moving .bar-fixed,html.moving .insight,html.moving det
 .cp-adv{font-size:17px;line-height:22px;font-weight:650;letter-spacing:-.015em}
 .cp-parts{display:flex;flex-direction:column;gap:6px}
 .mt{display:flex;align-items:center;gap:8px;font-size:13px}.mt i{width:8px;height:8px;border-radius:50%;flex:none}.mt span{color:var(--mute2);flex:1}.mt b{font-weight:650;font-variant-numeric:tabular-nums}
-.hero{background-image:radial-gradient(120% 90% at 100% 0%,color-mix(in srgb,var(--a,var(--run)) 13%,transparent),transparent 62%)}
+.hero{position:relative;isolation:isolate}
+.hero::before{content:"";position:absolute;inset:-1px;border-radius:inherit;z-index:-1;pointer-events:none;background:radial-gradient(120% 90% at 100% 0%,color-mix(in srgb,var(--a,var(--run)) 13%,transparent),transparent 62%)}
 /* Auf-/zuklappbare Hinweise */
 details.fold{display:block;padding:0}
 details.fold>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer}
