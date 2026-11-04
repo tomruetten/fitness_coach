@@ -433,3 +433,4 @@ body::before{display:none}
 .gstate{font-size:14px;color:var(--muted,#8a8a8e)}.gstate.on{color:#34C759;font-weight:600}
 .srow.out2 .sl{color:#ff3b30}
 #gcCred{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}#gcMfa{margin-bottom:12px}
+.gcerr{color:#d70015;font-size:14px;line-height:1.4;margin:0 0 12px;word-break:break-word}
