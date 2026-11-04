@@ -23,7 +23,7 @@ const totalSets = (s) => s.exercises.reduce((a, e) => a + e.sets, 0);
 export function heuteKraftCard(d) {
   const s = d.session;
   const shown = s.exercises.slice(0, 4), rest = s.exercises.length - shown.length;
-  return `<div class="card hero">
+  return `<div class="card hero" style="--a:var(--purple)">
     <div class="hero-top"><div class="kicker" style="color:var(--purple)">${esc(s.title.split(': ')[0])}</div><div class="hero-title">${esc(s.title.split(': ')[1] || s.summary || s.title)}</div></div>
     <div class="stats3"><div><span>Dauer</span><b>${s.duration_min}<small> min</small></b></div><div><span>Übungen</span><b>${s.exercises.length}</b></div><div><span>Sätze</span><b>${totalSets(s)}</b></div></div>
     <div class="lines">${shown.map((e) => `<div class="line"><span class="ln">${esc(e.name)}</span><span class="lv">${e.sets} × ${esc(e.reps)}${e.weight_kg ? ' · ' + fmtKg(e.weight_kg) + ' kg' : ''}</span>${e.delta_kg ? `<span class="dbadge up">+${fmtKg(e.delta_kg)}</span>` : '<span class="dspace"></span>'}</div>`).join('')}${rest > 0 ? `<div class="more-line">und ${rest} weitere Übung${rest > 1 ? 'en' : ''}</div>` : ''}</div>
