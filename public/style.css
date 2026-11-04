@@ -425,3 +425,11 @@ body::before{display:none}
 .at b{font-size:16px;font-weight:600}.at small{color:var(--muted,#8a8a8e);font-size:13px}
 .xtag{font-style:normal;font-weight:600;font-size:11px;color:#FF9500;background:rgba(255,149,0,.14);border-radius:99px;padding:2px 8px;margin-left:8px;vertical-align:1px}
 .srow.arow+.srow.arow::before{left:30px}
+
+/* ---- Garmin senden ---- */
+.gsend{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:4px}
+.gsend .link{display:inline-flex;align-items:center;gap:6px}
+.gsend small{font-size:12.5px}
+.gstate{font-size:14px;color:var(--muted,#8a8a8e)}.gstate.on{color:#34C759;font-weight:600}
+.srow.out2 .sl{color:#ff3b30}
+#gcCred{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}#gcMfa{margin-bottom:12px}

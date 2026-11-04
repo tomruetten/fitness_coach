@@ -31,6 +31,9 @@ node scripts/simulate.js <ordner> 2026-09-20   # Plan gegen eigene Historie absp
 ```
 Lokal ohne HTTPS: `SESSION_SECRET` ist nur in Produktion Pflicht; Passkeys funktionieren auf `localhost`.
 
+## Trainings an die Garmin-Uhr senden
+Läufe lassen sich über „An Garmin senden“ (Heute und Tagesansicht) als strukturiertes Training mit Zieltempi in den Garmin-Connect-Kalender legen. Die Personal API ist nur lesend, deshalb meldet sich die App einmal wie die Garmin-Connect-App an (SSO, ggf. Zwei-Faktor-Code, Verfahren der Bibliothek garth). Gespeichert wird nur der OAuth1-Token (`garmin_oauth` in `fit_settings`, etwa ein Jahr gültig), nie das Passwort. Erneutes Senden ersetzt das frühere Training des Tages.
+
 ## Hinweise
 - Garmin-Token (24 h) werden in `fit_settings` zwischengespeichert.
 - Schwellenwerte: Die App schlägt Schwellenpuls und -tempo aus harten Läufen vor, du bestätigst unter Heute.

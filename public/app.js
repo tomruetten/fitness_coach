@@ -179,7 +179,7 @@ function runCard(d) {
   const steps = (p.steps || []).map((s) => `<div class="line"><span class="ln">${esc(s.label)}</span><span class="lv">${esc(s.detail)}</span></div>`).join('');
   return `<div class="card hero" style="--a:${color}"><div class="hero-top"><div class="ht-text"><div class="kicker" style="color:${color}">${esc(nice(p.label))}</div><div class="hero-title">${esc(p.title)}</div></div>${d.stat ? statChip(d.stat) : ''}</div>
     ${big.length ? `<div class="bigs">${big.map(([l, v, u]) => `<div><span>${l}</span><b>${esc(v)}<small>${u}</small></b></div>`).join('')}</div>` : ''}${profileChart(p.profile)}${zone}
-    ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}</div>`;
+    ${steps ? `<div class="lines">${steps}</div>` : `<p class="blurb">${esc(p.summary || '')}</p>`}${garminBtn(d.garmin, p.date)}</div>`;
 }
 function otherCard(d) {
   const p = d.plan, rest = p.kind === 'rest', color = rest ? '#8E8E93' : KIND_COLOR.spinning;
@@ -246,7 +246,7 @@ function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d) + cockpit(d);
-  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
+  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, garmin: d.garmin, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
   if (g === 'run') html += `<div id="wx"></div>` + fitCard(d);
   html += infoCard(d, true);
   const main = d.evaluation ? d.done.find((x) => x.id === d.evaluation.activity_id) : null;
@@ -264,6 +264,59 @@ function drawToday(d, stale) {
   });
   if (g === 'run') loadWeather(d.date);
   bindStatus(app, d.date, () => render());
+  bindGarmin(app, () => render());
+}
+
+
+// ---- Garmin: Verbinden und Trainings an die Uhr senden ------------------------
+function openGarminConnect(onDone) {
+  let mfaState = null;
+  const el = document.createElement('div');
+  el.className = 'sheet-wrap';
+  el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Mit Garmin verbinden"><div class="grabber"></div><h3>Mit Garmin verbinden</h3>
+    <p class="muted" id="gcInfo">Damit die App Trainings an deine Uhr senden kann, melde dich einmal bei Garmin Connect an. Das Passwort wird nicht gespeichert, nur ein Anmelde-Token.</p>
+    <div id="gcCred"><input class="txt" id="gcMail" type="email" placeholder="Garmin E-Mail" autocomplete="username" autocapitalize="off"><input class="txt" id="gcPass" type="password" placeholder="Passwort" autocomplete="current-password"></div>
+    <div id="gcMfa" hidden><input class="txt" id="gcCode" inputmode="numeric" placeholder="Code aus E-Mail oder App" autocomplete="one-time-code"></div>
+    <button type="button" class="cta" id="gcGo">Verbinden</button><button type="button" class="link" id="gcCancel">Abbrechen</button></div>`;
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('open'));
+  const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
+  $('.sheet-bg', el).onclick = close; $('#gcCancel', el).onclick = close;
+  $('#gcGo', el).onclick = async () => {
+    const btn = $('#gcGo', el); btn.disabled = true; btn.textContent = 'Verbinde …';
+    try {
+      const r = mfaState ? await api('/garmin/verify-mfa', { mfaCode: $('#gcCode', el).value.trim(), mfaState }) : await api('/garmin/connect', { email: $('#gcMail', el).value, password: $('#gcPass', el).value });
+      if (r.mfaRequired) {
+        mfaState = r.mfaState;
+        $('#gcCred', el).hidden = true; $('#gcMfa', el).hidden = false;
+        $('#gcInfo', el).textContent = 'Garmin hat dir einen Bestätigungscode geschickt. Gib ihn hier ein.';
+        btn.textContent = 'Bestätigen'; btn.disabled = false; $('#gcCode', el).focus();
+        return;
+      }
+      toast('Mit Garmin verbunden'); close(); onDone?.();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = mfaState ? 'Bestätigen' : 'Verbinden'; }
+  };
+}
+
+/** Sendet die Einheit des Tages an Garmin; verbindet vorher, falls nötig. */
+async function sendToGarmin(date, connected, after) {
+  const run = async () => {
+    try {
+      const r = await api('/garmin/send', { date });
+      ['c_today', 'c_week'].forEach((k) => store.del(k));
+      toast(r.provisional ? 'Gesendet (Vorschau, wird am Tag angepasst)' : 'An Garmin gesendet');
+      after();
+    } catch (e) { if (e.message && /neu verbinden|nicht mit Garmin/i.test(e.message)) openGarminConnect(run); else toast(e.message); }
+  };
+  if (!connected) return openGarminConnect(run);
+  await run();
+}
+function garminBtn(g, date) {
+  if (!g?.can) return '';
+  return `<div class="gsend"><button type="button" class="link" data-garmin="${date}" data-conn="${g.connected ? 1 : 0}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="7"/><path d="M12 13V9M9.5 3h5"/></svg>${g.sent ? 'Erneut an Garmin senden' : 'An Garmin senden'}</button>${g.sent ? `<small class="muted">Gesendet: ${esc(g.sent.name)}</small>` : ''}</div>`;
+}
+function bindGarmin(root, after) {
+  $$('[data-garmin]', root).forEach((b) => b.addEventListener('click', () => sendToGarmin(b.dataset.garmin, b.dataset.conn === '1', after)));
 }
 
 function openPain(date) {
@@ -295,7 +348,7 @@ async function viewDay(app, { date, nav }) {
     data = d;
     const p = d.week.find((x) => x.date === date) || d.week[0];
     const g = group(p.kind), past = date <= d.today;
-    const fake = { plan: p, thresholds: { lthr: d.lthr }, stat: past ? { date, status: p.status } : null };
+    const fake = { plan: p, thresholds: { lthr: d.lthr }, stat: past ? { date, status: p.status } : null, garmin: date >= d.today ? { can: p.garmin_can, sent: p.garmin_sent, connected: d.garmin_connected } : null };
     const wd = new Date(date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
     app.innerHTML = `<button type="button" class="back" data-act="back">${icon.back}Woche</button>
       <div class="head"><div class="eyebrow">${wd}${date === d.today ? ' · heute' : ''}</div><h1>${esc(nice(p.label).replace(/ \(.*/, '').split(' · ')[0])}</h1></div>
@@ -307,6 +360,7 @@ async function viewDay(app, { date, nav }) {
 `;
     $('[data-act=back]', app).onclick = () => nav('back');
     bindStatus(app, date, () => { store.del('c_week'); viewDay(app, { date, nav }); });
+    bindGarmin(app, () => viewDay(app, { date, nav }));
   };
   const cached = store.get('c_week');
   if (cached) draw(cached);
@@ -504,13 +558,13 @@ async function setupPush(first) {
 const CHEV_R = '<svg class="chr" width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>';
 async function viewMore(isCurrent = () => true) {
   const cached = store.get('c_more');
-  const load = () => Promise.all([api('/settings'), api('/auth/state'), api('/push/state').catch(() => null)]).then(([s, st, pu]) => ({ s, st, pu }));
+  const load = () => Promise.all([api('/settings'), api('/auth/state'), api('/push/state').catch(() => null), api('/garmin/state').catch(() => null)]).then(([s, st, pu, gs]) => ({ s, st, pu, gs }));
   if (cached) draw(cached);
   else app.innerHTML = '<div class="head"><h1>Profil</h1></div><p class="muted center-text">Lädt …</p>';
   const fresh = await load();
   store.set('c_more', fresh);
   if (isCurrent() && JSON.stringify(fresh) !== JSON.stringify(cached) && !app.contains(document.activeElement && document.activeElement.matches('input') ? document.activeElement : null)) draw(fresh);
-  function draw({ s, st, pu }) {
+  function draw({ s, st, pu, gs }) {
     const g = s.goal || {};
     const ts = s.thresholdSuggestion;
     const ic = (c, svg) => `<i class="si2 ${c}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg></i>`;
@@ -523,6 +577,7 @@ async function viewMore(isCurrent = () => true) {
       sync: ic('blue', '<path d="M20 11a8 8 0 00-14-4M4 5v4h4M4 13a8 8 0 0014 4M20 19v-4h-4"/>'),
       hist: ic('gray', '<path d="M4 12a8 8 0 108-8 8 8 0 00-6 2.7M4 4v4h4M12 8v4l3 2"/>'),
       key: ic('gray', '<circle cx="8" cy="14" r="3.5"/><path d="M10.5 11.5L20 4M16 8l3 3"/>'),
+      watch: ic('green', '<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.7-3h4.6L15 6M9 18l.7 3h4.6l.7-3M12 10v2.5l1.5 1"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
     const gt = g.time_s ? `${Math.floor(g.time_s / 3600)}:${String(Math.floor((g.time_s % 3600) / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}` : '';
@@ -542,6 +597,8 @@ async function viewMore(isCurrent = () => true) {
     <h2>Garmin</h2><div class="group">
       <button type="button" class="srow btn" id="sync">${IC.sync}<span class="sl">Jetzt synchronisieren</span>${CHEV_R}</button>
       <button type="button" class="srow btn" id="hist">${IC.hist}<span class="sl">Verlauf ab 01.01. laden</span>${CHEV_R}</button>
+      <button type="button" class="srow btn" id="gConn">${IC.watch}<span class="sl">Trainings an die Uhr senden</span><span class="gstate${gs?.connected ? ' on' : ''}">${gs?.connected ? 'Verbunden' : 'Verbinden'}</span>${CHEV_R}</button>
+      ${gs?.connected ? '<button type="button" class="srow btn out2" id="gOff"><span class="sl">Garmin-Verbindung trennen</span></button>' : ''}
     </div><p class="gfoot" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</p>
     <h2>Sicherheit</h2><div class="group">
       ${(st.passkeys || []).map((k) => `<div class="srow">${IC.key}<span class="sl">${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10).split('-').reverse().join('.'))}</span></div>`).join('')}
@@ -577,6 +634,8 @@ async function viewMore(isCurrent = () => true) {
       catch (e) { $('#syncInfo').textContent = 'Fehler: ' + e.message; }
       $('#sync').disabled = $('#hist').disabled = false;
     };
+    $('#gConn').onclick = () => { if (gs?.connected) return toast('Bereits verbunden. Senden geht über „An Garmin senden“ bei einem Lauf.'); openGarminConnect(() => { store.del('c_more'); render(); }); };
+    $('#gOff')?.addEventListener('click', async () => { try { await api('/garmin/disconnect', {}); toast('Verbindung getrennt'); store.del('c_more'); render(); } catch (e) { toast(e.message); } });
     setupPush(pu);
     $('#sync').onclick = () => doSync();
     $('#hist').onclick = () => doSync(new Date().getFullYear() + '-01-01');

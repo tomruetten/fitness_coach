@@ -2,7 +2,9 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getStore } from './db/index.js';
-import { clearSessionCookie, isAuthed, requireAuth, requireJsonHeader, setSessionCookie } from './auth/session.js';
+import { clearSessionCookie, isAuthed, requireAuth, requireJsonHeader, setSessionCookie, encryptState, decryptState } from './auth/session.js';
+import { garminLogin, garminLoginMfa, garminRefreshToken, pushWorkout, scheduleWorkout, deleteWorkout, authError } from './garmin/connect.js';
+import { planToWorkout } from './garmin/workout.js';
 import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } from './auth/passkeys.js';
 import { loadContext, loadSettings, todayIn } from './context.js';
 import { planningContext, planDay, planWeek, readiness, slotOf } from './engine/planner.js';
@@ -136,6 +138,71 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
 
   app.use('/api', requireAuth);
 
+  // ---- Trainings an die Garmin-Uhr senden -------------------------------------------
+  const saveGarminLogin = async (r) => {
+    await store.setSetting('garmin_oauth', { oauthToken: r.oauthToken, oauthTokenSecret: r.oauthTokenSecret, since: new Date().toISOString() });
+    await store.setSetting('garmin_access', { accessToken: r.accessToken, expiresAt: r.expiresAt });
+  };
+  const garminAccess = async () => {
+    const acc = await store.getSetting('garmin_access');
+    if (acc?.accessToken && acc.expiresAt - Date.now() > 5 * 60 * 1000) return acc.accessToken;
+    const o = await store.getSetting('garmin_oauth');
+    if (!o?.oauthToken) throw authError('Nicht mit Garmin verbunden. Bitte im Profil verbinden.');
+    let t;
+    try { t = await garminRefreshToken(o.oauthToken, o.oauthTokenSecret); } catch (e) { throw authError(`Garmin-Anmeldung abgelaufen (${e.message}). Bitte im Profil neu verbinden.`); }
+    await store.setSetting('garmin_access', { accessToken: t.accessToken, expiresAt: t.expiresAt });
+    return t.accessToken;
+  };
+  // Hinweis: 401 ist für die App-Sitzung reserviert (führt zum Login), deshalb Garmin-Fehler als 400/502.
+  const garminFail = (res, e) => res.status(e.code === 'GARMIN_AUTH' ? 409 : 502).json({ error: e.message, reconnect: e.code === 'GARMIN_AUTH' });
+
+  app.get('/api/garmin/state', wrap(async (req, res) => {
+    const o = await store.getSetting('garmin_oauth');
+    res.json({ connected: !!o?.oauthToken, since: o?.since || null });
+  }));
+  app.post('/api/garmin/connect', wrap(async (req, res) => {
+    const { email, password } = req.body || {};
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) return res.status(400).json({ error: 'E-Mail und Passwort eingeben' });
+    try {
+      const r = await garminLogin(email.trim(), password);
+      if (r.mfaRequired) return res.json({ mfaRequired: true, mfaState: encryptState({ jar: r.jar, mfaMethod: r.mfaMethod, exp: Date.now() + 5 * 60 * 1000 }) });
+      await saveGarminLogin(r);
+      res.json({ connected: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  }));
+  app.post('/api/garmin/verify-mfa', wrap(async (req, res) => {
+    const { mfaCode, mfaState } = req.body || {};
+    const pending = decryptState(mfaState);
+    if (!mfaCode) return res.status(400).json({ error: 'Code eingeben' });
+    if (!pending || pending.exp < Date.now()) return res.status(400).json({ error: 'Vorgang abgelaufen. Bitte neu verbinden.' });
+    try { await saveGarminLogin(await garminLoginMfa(String(mfaCode), pending.jar, pending.mfaMethod)); res.json({ connected: true }); } catch (e) { res.status(400).json({ error: e.message }); }
+  }));
+  app.post('/api/garmin/disconnect', wrap(async (req, res) => {
+    await store.setSetting('garmin_oauth', null);
+    await store.setSetting('garmin_access', null);
+    res.json({ ok: true });
+  }));
+  app.post('/api/garmin/send', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    const date = req.body?.date;
+    if (!isDate(date) || date < ctx.today || date > addDays(ctx.today, 7)) return res.status(400).json({ error: 'Nur heute und die nächsten 7 Tage' });
+    const plan = date === ctx.today ? planDay(ctx, { rd: readiness(ctx) }) : planWeek({ ...ctx, today: ctx.today }).find((p) => p.date === date) || planWeek({ ...ctx, date, today: ctx.today }).find((p) => p.date === date);
+    const workout = planToWorkout(plan);
+    if (!workout) return res.status(400).json({ error: 'Nur Läufe lassen sich an Garmin senden.' });
+    try {
+      const token = await garminAccess();
+      const sent = (await store.getSetting('garmin_sent')) || {};
+      if (sent[date]?.id) await deleteWorkout(token, sent[date].id); // geänderten Plan ersetzen statt doppelt anlegen
+      const id = await pushWorkout(token, workout);
+      sent[date] = { id, name: workout.workoutName, at: new Date().toISOString() };
+      for (const k of Object.keys(sent)) if (k < addDays(ctx.today, -30)) delete sent[k];
+      await store.setSetting('garmin_sent', sent);
+      await scheduleWorkout(token, id, date);
+      res.json({ ok: true, name: workout.workoutName, provisional: !!plan.provisional });
+    } catch (e) { garminFail(res, e); }
+  }));
+
+
   // ---- Daten -------------------------------------------------------------
   app.get('/api/today', wrap(async (req, res) => {
     const [ctx, last] = await Promise.all([loadContext(store), store.getSetting('last_sync')]);
@@ -151,7 +218,8 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
     const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date }) || (done.length ? evaluateSession({ plan: null, activities: ctx.activities, rd, date: ctx.date, act: done.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) }) : null);
-    res.json({ date: ctx.date, status: ctx.settings._status?.[ctx.date] || (auto ? 'done' : null), auto, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
+    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto ? 'done' : null), auto, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -162,7 +230,8 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const week = plans.map((p, i) => ({ ...p, done: ctx.activities.filter((a) => a.local_date === dates[i]).map((a) => ({ id: a.id, sport: a.sport, duration_s: a.duration_s, distance_m: a.distance_m, avg_hr: a.avg_hr, max_hr: a.max_hr, load: a.load, ascent_m: a.ascent_m, rpe: a.rpe, te: a.te_aerobic, te_aerobic: a.te_aerobic, cad: a.avg_cadence, avg_cadence: a.avg_cadence, segments: a.sport === 'running' ? a.best?.segments : undefined, zone_s: a.zone_s, splits: a.sport === 'running' ? a.km_splits : undefined })) }));
     const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
     const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
-    res.json({ today: ctx.today, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, status: ctx.settings._status?.[p.date] || (auto ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
+    const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
+    res.json({ today: ctx.today, garmin_connected: !!gOauth?.oauthToken, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, garmin_sent: (gSent || {})[p.date] || null, garmin_can: !!planToWorkout(p), status: ctx.settings._status?.[p.date] || (auto ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
   }));
 
   // Rückblick auf die letzte volle Woche (am Montag/Dienstag wird er oben in der Woche gezeigt).

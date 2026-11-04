@@ -59,3 +59,20 @@ export function requireJsonHeader(req, res, next) {
   }
   next();
 }
+
+// Kurzlebiger, verschlüsselter Zwischenstand (z. B. Garmin-Anmeldung mit Zwei-Faktor-Code), den der Client zurückschickt.
+const stateKey = () => crypto.createHash('sha256').update(secret()).digest();
+export function encryptState(obj) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', stateKey(), iv);
+  const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64url');
+}
+export function decryptState(token) {
+  try {
+    const buf = Buffer.from(String(token), 'base64url');
+    const d = crypto.createDecipheriv('aes-256-gcm', stateKey(), buf.subarray(0, 12));
+    d.setAuthTag(buf.subarray(12, 28));
+    return JSON.parse(Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString('utf8'));
+  } catch { return null; }
+}
