@@ -582,6 +582,7 @@ async function viewMore(isCurrent = () => true) {
       hist: ic('gray', '<path d="M4 12a8 8 0 108-8 8 8 0 00-6 2.7M4 4v4h4M12 8v4l3 2"/>'),
       key: ic('gray', '<circle cx="8" cy="14" r="3.5"/><path d="M10.5 11.5L20 4M16 8l3 3"/>'),
       watch: ic('green', '<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.7-3h4.6L15 6M9 18l.7 3h4.6l.7-3M12 10v2.5l1.5 1"/>'),
+      flag: ic('orange', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
     const gt = g.time_s ? `${Math.floor(g.time_s / 3600)}:${String(Math.floor((g.time_s % 3600) / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}` : '';
@@ -589,7 +590,6 @@ async function viewMore(isCurrent = () => true) {
     const sugg = ts && ts.lthr && ts.lthr !== s.lthr ? `<div class="card sugg"><div class="sg-t"><b>Neuer Schwellenpuls erkannt</b><small>Aus deinen letzten harten Läufen: ${ts.lthr} bpm statt ${s.lthr} bpm.</small></div><button class="pill-btn" id="applyTh">Übernehmen</button></div>` : '';
     const row = (icon, label, id, val, unit, attrs = '') => `<label class="srow">${icon}<span class="sl">${label}</span><input class="val" id="${id}" value="${val}" ${attrs}>${unit ? `<u>${unit}</u>` : ''}</label>`;
     app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">Einstellungen</div><h1>Profil</h1></div><div class="avatar" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.9-3.6 3.7-5.4 7-5.4s6.1 1.8 7 5.4"/></svg></div></div>
-    <div class="card goal"><div class="kicker">Halbmarathon-Ziel · optional</div><input class="goalbig" id="gt" inputmode="numeric" value="${gt}" placeholder="1:50:00" aria-label="Zielzeit"><div class="goal-d"><span>${g.date ? (days > 0 ? `Wettkampf in ${days} ${days === 1 ? 'Tag' : 'Tagen'}` : 'Wettkampf') : 'Noch kein Termin'}</span><input class="val date" id="gd" type="date" value="${g.date || ''}" aria-label="Wettkampfdatum"></div></div>${s.goal_status ? `<p class="fine" style="margin:8px 4px 0">${s.goal_status.label}, noch ${s.goal_status.weeksLeft} Wochen. Renntempo im Training ${pace(s.goal_status.usedPace)} /km${s.goal_status.capped ? ` (Ziel braucht VDOT ${dec(s.goal_status.requiredVdot, 1)}, du hast ${dec(s.goal_status.currentVdot, 1)}, daher begrenzt)` : ''}.</p>` : `<p class="fine" style="margin:8px 4px 0">Ohne Zielzeit und Datum trainierst du einfach kontinuierlich besser. Mit beidem plant Coach auf das Rennen hin.</p>`}
     ${sugg}
     <h2>Puls und Tempo</h2><div class="group">
       ${row(IC.heart, 'Schwellenpuls', 'lthr', s.lthr, 'bpm', 'type="number" inputmode="numeric"')}
@@ -604,6 +604,7 @@ async function viewMore(isCurrent = () => true) {
       <button type="button" class="srow btn" id="gConn">${IC.watch}<span class="sl">Trainings an die Uhr senden</span><span class="gstate${gs?.connected ? ' on' : ''}">${gs?.connected ? 'Verbunden' : 'Verbinden'}</span>${CHEV_R}</button>
       ${gs?.connected ? '<button type="button" class="srow btn out2" id="gOff"><span class="sl">Garmin-Verbindung trennen</span></button>' : ''}
     </div><p class="gfoot" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</p>
+    <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Sicherheit</h2><div class="group">
       ${(st.passkeys || []).map((k) => `<div class="srow">${IC.key}<span class="sl">${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10).split('-').reverse().join('.'))}</span></div>`).join('')}
       <button type="button" class="srow btn" id="addPk">${IC.plus}<span class="sl blue">Dieses Gerät hinzufügen</span></button>
@@ -613,12 +614,10 @@ async function viewMore(isCurrent = () => true) {
     const parseT = (v) => { const p = v.trim().split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN; };
     // Änderungen werden direkt gespeichert, sobald ein Feld verlassen wird
     const save = async () => {
-      const times = { gt: $('#gt').value, ltp: $('#ltp').value, ezp: $('#ezp').value };
+      const times = { ltp: $('#ltp').value, ezp: $('#ezp').value };
       if (Object.values(times).some((v) => v.trim() && !Number.isFinite(parseT(v)))) return toast('Zeiten bitte als 1:50:00 bzw. 4:58 eingeben');
-      const gs = parseT(times.gt);
-      if (times.gt.trim() && (gs < 3600 || gs > 14400)) return toast('Zielzeit zwischen 1:00:00 und 4:00:00 eingeben');
       try {
-        await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp), goal: { time_s: parseT(times.gt), date: $('#gd').value || null } });
+        await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp) });
         ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k));
         toast('Gespeichert');
       } catch (e) { toast(e.message); }
@@ -630,8 +629,33 @@ async function viewMore(isCurrent = () => true) {
       const ss = d.slice(-2), mm = d.slice(-4, -2), h = d.slice(0, -4);
       return hours ? (h ? `${h}:${mm}:${ss}` : `${d.slice(0, -2)}:${ss}`) : `${d.slice(0, -2)}:${ss}`;
     };
-    [['gt', true], ['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
-    ['gt', 'gd', 'lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
+    [['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
+    ['lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
+    $('#goalRow').addEventListener('click', () => {
+      const el = document.createElement('div');
+      el.className = 'sheet-wrap';
+      const gs = s.goal_status;
+      const info = gs ? `${esc(gs.label)}, noch ${gs.weeksLeft} Wochen. Renntempo im Training ${pace(gs.usedPace)} /km${gs.capped ? ` (Ziel braucht VDOT ${dec(gs.requiredVdot, 1)}, du hast ${dec(gs.currentVdot, 1)}, daher begrenzt)` : ''}.` : 'Ohne Datum plant Coach wie bisher auf kontinuierliche Verbesserung.';
+      el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Wettkampfziel"><div class="grabber"></div><h3>Wettkampfziel</h3><p class="muted">Halbmarathon. Mit Zielzeit und Datum richtet sich der Plan auf das Rennen aus, mit Aufbau, Renntempo und Tapering.</p>
+        <div class="group"><label class="srow"><span class="sl">Zielzeit</span><input class="val" id="sgt" inputmode="numeric" value="${gt}" placeholder="1:50:00"></label><label class="srow"><span class="sl">Datum</span><input class="val date" id="sgd" type="date" value="${g.date || ''}"></label></div>
+        <p class="fine">${info}</p>
+        <button type="button" class="cta" id="sgSave">Speichern</button>${g.date ? '<button type="button" class="link" id="sgDel">Ziel entfernen</button>' : '<button type="button" class="link" id="sgCancel">Abbrechen</button>'}</div>`;
+      document.body.append(el);
+      requestAnimationFrame(() => el.classList.add('open'));
+      const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
+      $('.sheet-bg', el).onclick = close;
+      $('#sgCancel', el)?.addEventListener('click', close);
+      $('#sgt', el).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, true); });
+      const put = async (goal) => { try { await api('/settings', { goal }); ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k)); close(); toast('Gespeichert'); render(); } catch (e) { toast(e.message); } };
+      $('#sgDel', el)?.addEventListener('click', () => put({ date: null }));
+      $('#sgSave', el).onclick = () => {
+        const ts = parseT($('#sgt', el).value || '');
+        if (!Number.isFinite(ts) || ts < 3600 || ts > 14400) return toast('Zielzeit zwischen 1:00:00 und 4:00:00 eingeben');
+        const d = $('#sgd', el).value;
+        if (d && d < new Date().toISOString().slice(0, 10)) return toast('Datum liegt in der Vergangenheit');
+        put({ time_s: ts, date: d || null });
+      };
+    });
     const doSync = async (from) => {
       $('#sync').disabled = $('#hist').disabled = true; let added = 0, lastHealth = null;
       try { for (let i = 0; i < 12; i++) { $('#syncInfo').textContent = `Synchronisiere … ${added} neu`; const r = await api('/sync', from ? { from } : {}); added += r.added; if (r.health) lastHealth = r.health; if (r.done) break; } const h = lastHealth; $('#syncInfo').textContent = `Fertig, ${added} neue Aktivitäten.` + (h ? ` Tageswerte: ${h.rows} Tage (HRV ${h.hrv}, Ruhepuls ${h.rhr}, Schlaf ${h.sleep})${h.errors?.length ? '. Fehler: ' + h.errors.join('; ') : ''}` : ''); }
