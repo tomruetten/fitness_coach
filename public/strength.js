@@ -106,14 +106,36 @@ export async function viewPrep(app, { kind, nav }) {
         <div class="xmain"><span class="xname">${esc(e.name)}</span>${edit ? `<div class="efields"><div class="ef"><span>Sätze</span><span class="mini"><button type="button" data-sd="${i}" aria-label="Sätze verringern">−</button><b>${e.sets}</b><button type="button" data-su="${i}" aria-label="Sätze erhöhen">+</button></span></div><label class="ef grow"><span>Wiederholungen</span><input class="reps" data-rp="${i}" value="${esc(e.reps)}" placeholder="z. B. 8 oder 30 s" aria-label="Wiederholungen"></label></div>` : ''}<span class="xsub">${edit ? '' : `${e.sets} Sätze · ${o?.last ? 'letztes Mal ' + lastText(o) : 'noch nie gemacht'}`}</span></div>
         ${edit ? '' : o ? badge(o) : '<span class="dbadge neu">neu</span>'}</div>`;
   }).join('') : '<div class="xrow"><span class="muted">Noch keine Übungen. Füge unten die erste hinzu.</span></div>'}</div>
-      ${saved.length ? `<h2>Gespeicherte Workouts</h2><div class="group">${saved.map((w) => `<div class="srow wk">${edit ? `<button type="button" class="rm" data-wdel="${esc(w.id)}" aria-label="${esc(w.name)} löschen">−</button>` : ''}<button type="button" class="wkmain" data-wload="${esc(w.id)}"><span class="sl">${esc(w.name)}</span><span class="muted">${w.exercises.length} Übungen</span></button></div>`).join('')}</div><p class="gfoot">Ein Tipp lädt das Workout in ${kind === 'strength_x' ? 'Eigene' : esc(KIND_NAME[kind])} und ersetzt dort die Übungen.</p>` : ''}
       ${adding ? pickerHtml(cat, new Set(list.map((e) => e.id)), 'Übung zur Vorlage hinzufügen') : `<button type="button" class="addbtn" data-act="add">${icon.plus}Übung hinzufügen</button>`}
+      ${saved.length && !adding ? `<button type="button" class="addbtn" data-act="wkload">${icon.plus}Gespeichertes Workout laden</button>` : ''}
       ${edit && s.customized && kind !== 'strength_x' ? '<button type="button" class="link" data-act="reset">Auf Standard zurücksetzen</button>' : ''}
       <p class="foot">Die Auswahlliste enthält alle Übungen, die du je angelegt oder trainiert hast. Die Vorgabe „+2,5 kg“ kommt aus deinen letzten Einheiten: Hast du alle Sätze geschafft, schlägt die App etwas mehr Gewicht vor.</p>
       <div class="bar-fixed two"><button type="button" class="cta" data-act="start" ${list.length ? '' : 'disabled'}>Mit dieser Vorlage starten</button><button type="button" class="cta ghost" data-act="blank">Leer starten, Übungen später hinzufügen</button></div>`;
     bind();
   };
   const persist = async () => { await api('/strength/template', { kind, exercises: list }); };
+  const openWorkoutList = () => {
+    const el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    const target = kind === 'strength_x' ? 'Eigene' : KIND_NAME[kind];
+    const rows = () => saved.map((w) => `<div class="srow wk"><button type="button" class="wkmain" data-wload="${esc(w.id)}"><span class="sl">${esc(w.name)}</span><span class="muted">${w.exercises.length} ${w.exercises.length === 1 ? "Übung" : "Übungen"}</span></button><button type="button" class="rm" data-wdel="${esc(w.id)}" aria-label="${esc(w.name)} löschen">−</button></div>`).join('');
+    el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Gespeichertes Workout laden"><div class="grabber"></div><h3>Gespeichertes Workout laden</h3><p class="muted">Ein Tipp ersetzt die Übungen in ${esc(target)}.</p><div class="group" id="wkList">${rows()}</div><button type="button" class="link" id="wkClose">Abbrechen</button></div>`;
+    document.body.append(el);
+    requestAnimationFrame(() => el.classList.add('open'));
+    const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
+    $('.sheet-bg', el).onclick = close; $('#wkClose', el).onclick = close;
+    const wire = () => {
+      $$('[data-wload]', el).forEach((b) => b.addEventListener('click', async () => {
+        const w = saved.find((x) => x.id === b.dataset.wload); if (!w) return;
+        list = w.exercises.map((e) => ({ ...e })); adding = false; close();
+        try { await persist(); await load(kind, true); toast(`„${w.name}" geladen`); } catch (e) { toast(e.message); }
+      }));
+      $$('[data-wdel]', el).forEach((b) => b.addEventListener('click', async () => {
+        try { await api('/strength/workouts', { delete: b.dataset.wdel }); saved = saved.filter((x) => x.id !== b.dataset.wdel); if (!saved.length) { close(); draw(); return; } $('#wkList', el).innerHTML = rows(); wire(); draw(); } catch (e) { toast(e.message); }
+      }));
+    };
+    wire();
+  };
   const bind = () => {
     $$('[data-kind]', app).forEach((b) => b.addEventListener('click', async () => { if (b.dataset.kind !== kind) { edit = false; adding = false; await load(b.dataset.kind).catch((e) => toast(e.message)); } }));
     $('[data-act=back]', app).onclick = () => nav('back');
@@ -124,14 +146,7 @@ export async function viewPrep(app, { kind, nav }) {
     $$('[data-sd]', app).forEach((b) => b.addEventListener('click', () => { const e = list[Number(b.dataset.sd)]; e.sets = Math.max(1, e.sets - 1); draw(); }));
     $$('[data-su]', app).forEach((b) => b.addEventListener('click', () => { const e = list[Number(b.dataset.su)]; e.sets = Math.min(10, e.sets + 1); draw(); }));
     $$('[data-rp]', app).forEach((i) => i.addEventListener('change', () => { list[Number(i.dataset.rp)].reps = i.value.trim() || '8'; }));
-    $$('[data-wload]', app).forEach((b) => b.addEventListener('click', async () => {
-      const w = saved.find((x) => x.id === b.dataset.wload); if (!w) return;
-      list = w.exercises.map((e) => ({ ...e })); adding = false;
-      try { await persist(); await load(kind, true); toast(`„${w.name}" geladen`); } catch (e) { toast(e.message); }
-    }));
-    $$('[data-wdel]', app).forEach((b) => b.addEventListener('click', async () => {
-      try { await api('/strength/workouts', { delete: b.dataset.wdel }); saved = saved.filter((x) => x.id !== b.dataset.wdel); draw(); } catch (e) { toast(e.message); }
-    }));
+    $('[data-act=wkload]', app)?.addEventListener('click', () => openWorkoutList());
     $('[data-act=add]', app)?.addEventListener('click', () => { adding = true; draw(); });
     if (adding) pickerBind(app, cat, new Set(list.map((e) => e.id)), async (c) => {
       list.push({ id: c.id, name: c.name, sets: c.sets, reps: c.reps }); adding = false;
