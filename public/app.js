@@ -597,6 +597,7 @@ async function viewMore(isCurrent = () => true) {
       ${row(IC.pace, 'Schwellentempo', 'ltp', pace(s.lt_pace_s), '/km', 'inputmode="numeric"')}
       ${row(IC.easy, 'Lockeres Tempo', 'ezp', pace(s.easy_pace_s), '/km', 'inputmode="numeric"')}
     </div><p class="gfoot">Das Schwellentempo ist nur der Startwert. Sobald harte Läufe vorliegen, berechnet die App den Leistungsstand daraus selbst.</p>
+    <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
     <h2>Garmin</h2><div class="group">
       <button type="button" class="srow btn" id="sync">${IC.sync}<span class="sl">Jetzt synchronisieren</span>${CHEV_R}</button>
@@ -604,7 +605,6 @@ async function viewMore(isCurrent = () => true) {
       <button type="button" class="srow btn" id="gConn">${IC.watch}<span class="sl">Trainings an die Uhr senden</span><span class="gstate${gs?.connected ? ' on' : ''}">${gs?.connected ? 'Verbunden' : 'Verbinden'}</span>${CHEV_R}</button>
       ${gs?.connected ? '<button type="button" class="srow btn out2" id="gOff"><span class="sl">Garmin-Verbindung trennen</span></button>' : ''}
     </div><p class="gfoot" id="syncInfo">Holt neue Aktivitäten und Gesundheitsdaten.</p>
-    <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Sicherheit</h2><div class="group">
       ${(st.passkeys || []).map((k) => `<div class="srow">${IC.key}<span class="sl">${esc(k.label || 'Gerät')}</span><span class="muted">${esc((k.created_at || '').slice(0, 10).split('-').reverse().join('.'))}</span></div>`).join('')}
       <button type="button" class="srow btn" id="addPk">${IC.plus}<span class="sl blue">Dieses Gerät hinzufügen</span></button>
