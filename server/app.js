@@ -489,7 +489,8 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const pc0 = planningContext(ctx, withDefaults(ctx.settings), null);
     const ri = raceInfo(withDefaults(ctx.settings), ctx.date, pc0.fit);
     const goal_status = ri ? { phase: ri.phase, label: ri.label, daysLeft: ri.daysLeft, weeksLeft: ri.weeksLeft, usedPace: ri.usedPace, capped: ri.capped, requiredVdot: ri.requiredVdot, currentVdot: ri.currentVdot } : null;
-    res.json({ ...out, goal_status, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
+    const saved_workouts = ((await store.getSetting('saved_workouts')) || []).length;
+    res.json({ ...out, goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};

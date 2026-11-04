@@ -582,6 +582,7 @@ async function viewMore(isCurrent = () => true) {
       hist: ic('gray', '<path d="M4 12a8 8 0 108-8 8 8 0 00-6 2.7M4 4v4h4M12 8v4l3 2"/>'),
       key: ic('gray', '<circle cx="8" cy="14" r="3.5"/><path d="M10.5 11.5L20 4M16 8l3 3"/>'),
       watch: ic('green', '<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.7-3h4.6L15 6M9 18l.7 3h4.6l.7-3M12 10v2.5l1.5 1"/>'),
+      dumb: ic('purple', '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
       flag: ic('orange', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
@@ -597,7 +598,7 @@ async function viewMore(isCurrent = () => true) {
       ${row(IC.pace, 'Schwellentempo', 'ltp', pace(s.lt_pace_s), '/km', 'inputmode="numeric"')}
       ${row(IC.easy, 'Lockeres Tempo', 'ezp', pace(s.easy_pace_s), '/km', 'inputmode="numeric"')}
     </div><p class="gfoot">Das Schwellentempo ist nur der Startwert. Sobald harte Läufe vorliegen, berechnet die App den Leistungsstand daraus selbst.</p>
-    <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
+    <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="kraftRow">${IC.dumb}<span class="sl">Krafttraining</span><span class="muted">${s.saved_workouts ? `${s.saved_workouts} gespeichert` : 'Workouts'}</span>${CHEV_R}</button><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
     <h2>Garmin</h2><div class="group">
       <button type="button" class="srow btn" id="sync">${IC.sync}<span class="sl">Jetzt synchronisieren</span>${CHEV_R}</button>
@@ -631,6 +632,7 @@ async function viewMore(isCurrent = () => true) {
     };
     [['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
     ['lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
+    $('#kraftRow').addEventListener('click', () => go('prep', { kind: 'strength_a' }));
     $('#goalRow').addEventListener('click', () => {
       const el = document.createElement('div');
       el.className = 'sheet-wrap';
