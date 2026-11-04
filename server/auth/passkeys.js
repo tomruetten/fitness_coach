@@ -14,7 +14,7 @@ export function relyingParty(req) {
   if (env && !/^https?:\/\//.test(env)) env = 'https://' + env;
   const origin = env || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
   const url = new URL(origin);
-  return { origin: url.origin, rpID: process.env.RP_ID || url.hostname, rpName: 'Fitness Coach' };
+  return { origin: url.origin, rpID: process.env.RP_ID || url.hostname, rpName: 'Coach' };
 }
 
 const ipOf = (req) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();

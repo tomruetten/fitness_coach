@@ -33,7 +33,7 @@ async function loginPasskey() {
 async function showAuth(state) {
   $('#tabs').hidden = true; app.classList.remove('sub');
   const setup = state.setupNeeded;
-  app.innerHTML = `<div class="center"><h1>Fitness Coach</h1><p class="lead">${setup ? 'Erste Einrichtung: Mit dem Setup-Token legst du den Passkey für dieses Gerät an.' : 'Mit Face ID, Touch ID oder Gerätecode anmelden.'}</p>
+  app.innerHTML = `<div class="center"><h1>Coach</h1><p class="lead">${setup ? 'Erste Einrichtung: Mit dem Setup-Token legst du den Passkey für dieses Gerät an.' : 'Mit Face ID, Touch ID oder Gerätecode anmelden.'}</p>
     ${setup ? '<input class="txt" id="tok" type="password" placeholder="Setup-Token" autocomplete="off">' : ''}
     <button class="pri" id="go">${setup ? 'Passkey anlegen' : 'Mit Passkey anmelden'}</button><p class="err" id="msg"></p></div>`;
   $('#go').onclick = async () => {

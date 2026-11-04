@@ -1,4 +1,4 @@
-# Fitness Coach
+# Coach
 
 Persönliche Trainings-App für Laufen, Rad und Kraft. Daten kommen aus der Garmin Personal API, der Plan wird **ausschließlich per Algorithmus** berechnet (keine KI im Betrieb). Läuft als PWA auf Vercel mit Supabase, Anmeldung per Passkey.
 
