@@ -32,6 +32,15 @@ export function createSupabaseStore(url, serviceKey) {
       if (ids.length) must(await sb.from('fit_strength_sets').delete().eq('date', date).in('exercise_id', ids));
       if (rows.length) must(await sb.from('fit_strength_sets').insert(rows));
     },
+    async deleteSets(date) { must(await sb.from('fit_strength_sets').delete().eq('date', date)); },
+    async remapWeights(date, map) {
+      let n = 0;
+      for (const [from, to] of Object.entries(map)) {
+        const d = must(await sb.from('fit_strength_sets').update({ weight_kg: to }).eq('date', date).eq('weight_kg', Number(from)).select('id'));
+        n += d.length;
+      }
+      return n;
+    },
     async setsSince(date) {
       const out = [];
       for (let from = 0; ; from += 1000) {

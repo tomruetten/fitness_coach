@@ -9,10 +9,11 @@ import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } fr
 import { loadContext, loadSettings, todayIn } from './context.js';
 import { planningContext, planDay, planWeek, readiness, slotOf, withDefaults } from './engine/planner.js';
 import { raceInfo } from './engine/race.js';
+import { runMigrations } from './migrations.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
-import { sessionFor, strengthAnalysis, exerciseInfo, exerciseCatalog } from './engine/strength.js';
+import { sessionFor, strengthAnalysis, exerciseInfo, exerciseCatalog, loggedDay } from './engine/strength.js';
 import { addDays, weekDates, weekday } from './engine/dates.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
@@ -222,6 +223,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
 
   // ---- Daten -------------------------------------------------------------
   app.get('/api/today', wrap(async (req, res) => {
+    await runMigrations(store);
     const [ctx, last] = await Promise.all([loadContext(store), store.getSetting('last_sync')]);
     const rd = readiness(ctx);
     const plan = planDay(ctx, { rd });
@@ -231,12 +233,13 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
+    const strength_done = loggedDay(ctx.sets, ctx.date);
     const history = vdotHistory(ctx, rd.settings);
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
     const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date }) || (done.length ? evaluateSession({ plan: null, activities: ctx.activities, rd, date: ctx.date, act: done.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) }) : null);
     const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
-    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto ? 'done' : null), auto, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto || (strength_done && String(plan.kind).startsWith('strength')) ? 'done' : null), auto, strength_done, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -248,7 +251,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
     const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
     const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
-    res.json({ today: ctx.today, garmin_connected: !!gOauth?.oauthToken, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, garmin_sent: (gSent || {})[p.date] || null, garmin_can: !!planToWorkout(p), status: ctx.settings._status?.[p.date] || (auto ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
+    res.json({ today: ctx.today, garmin_connected: !!gOauth?.oauthToken, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, garmin_sent: (gSent || {})[p.date] || null, garmin_can: !!planToWorkout(p), status: ctx.settings._status?.[p.date] || (auto || (String(p.kind).startsWith('strength') && ctx.sets.some((s) => s.date === p.date && s.done !== false)) ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
   }));
 
   // Rückblick auf die letzte volle Woche (am Montag/Dienstag wird er oben in der Woche gezeigt).
@@ -384,7 +387,8 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const kind = KINDS.includes(req.query.kind) ? req.query.kind : 'strength_a';
     const ctx = await loadContext(store);
     const plan = planWeek(ctx).find((p) => p.kind === kind) || null;
-    res.json(sessionFor({ plan, kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {}, blank: req.query.blank === '1' }));
+    const logged = req.query.edit === '1' ? loggedDay(ctx.sets, ctx.date) : null;
+    res.json(sessionFor({ plan, kind, logged, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {}, blank: req.query.blank === '1' }));
   }));
 
   // Übungskatalog: wächst mit jeder Übung, die du anlegst oder trainierst.
@@ -425,6 +429,26 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     if (all[kind]) await registerCatalog(all[kind]);
     res.json({ ok: true });
   }));
+  // Gespeicherte Workouts: Vorlagen, die sich in Kraft A/B/Eigene laden lassen.
+  app.get('/api/strength/workouts', wrap(async (req, res) => {
+    res.json({ workouts: (await store.getSetting('saved_workouts')) || [] });
+  }));
+  app.post('/api/strength/workouts', wrap(async (req, res) => {
+    const all = (await store.getSetting('saved_workouts')) || [];
+    if (req.body?.delete) {
+      await store.setSetting('saved_workouts', all.filter((w) => w.id !== String(req.body.delete)));
+      return res.json({ ok: true });
+    }
+    const name = String(req.body?.name || '').trim().slice(0, 40);
+    if (!name) return res.status(400).json({ error: 'Bitte einen Namen eingeben' });
+    const exercises = (Array.isArray(req.body?.exercises) ? req.body.exercises : []).slice(0, 15).map(cleanEx).filter((e) => e.id && e.name);
+    if (!exercises.length) return res.status(400).json({ error: 'Keine Übungen zum Speichern' });
+    const i = all.findIndex((w) => w.name.toLowerCase() === name.toLowerCase());
+    const w = { id: i >= 0 ? all[i].id : 'w_' + Date.now().toString(36), name, exercises };
+    if (i >= 0) all[i] = w; else all.push(w);
+    await store.setSetting('saved_workouts', all.slice(-30));
+    res.json({ ok: true, workout: w });
+  }));
   app.post('/api/strength/sets', wrap(async (req, res) => {
     const date = isDate(req.body?.date) ? req.body.date : todayIn();
     const kind = KINDS.includes(req.body?.kind) ? req.body.kind : null;
@@ -438,6 +462,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
         rows.push({ date, kind, exercise_id: id, exercise_name: name, set_no: i + 1, weight_kg: kg, reps, done: s.done !== false });
       });
     }
+    if (req.body?.edit === true) await store.deleteSets(date);
     await store.replaceSets(date, rows);
     const used = (Array.isArray(req.body?.exercises) ? req.body.exercises : []).filter((e) => Array.isArray(e.sets) && e.sets.length).map((e) => ({ id: e.id, name: e.name, sets: e.sets.length, reps: e.reps_spec || (e.sets[0]?.reps ?? 8) }));
     await registerCatalog(used);

@@ -434,3 +434,11 @@ body::before{display:none}
 .srow.out2 .sl{color:#ff3b30}
 #gcCred{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}#gcMfa{margin-bottom:12px}
 .gcerr{color:#d70015;font-size:14px;line-height:1.4;margin:0 0 12px;word-break:break-word}
+
+.step input.v{flex:1;min-width:0;width:0;border:0;background:transparent;font:inherit;font-size:16px;font-weight:700;text-align:center;padding:0;outline:0;box-shadow:none;font-variant-numeric:tabular-nums;color:var(--mute)}
+.step input.v.on{color:var(--ink)}
+.hero.done .hero-top{flex-direction:row;justify-content:space-between;align-items:flex-start}
+.donecheck{width:34px;height:34px;border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+.donecheck svg{width:18px;height:18px}
+.srow.wk{padding:0}.srow.wk .wkmain{flex:1;display:flex;align-items:center;gap:12px;min-height:48px;padding:9px 16px;border:0;background:none;font:inherit;font-size:16px;color:inherit;text-align:left}
+.srow.wk .rm{margin-left:12px}

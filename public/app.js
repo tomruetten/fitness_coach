@@ -255,7 +255,7 @@ function drawToday(d, stale) {
   if (rest.length) html += `<h2>${main ? 'Weitere Aktivitäten' : 'Heute erledigt'}</h2><div class="card">${rest.map((a) => `<div class="row"><span>${SPORT[a.sport] || a.sport}</span><span class="muted">${hm(a.duration_s)}${a.distance_m > 500 ? ' · ' + (a.distance_m / 1000).toFixed(1).replace('.', ',') + ' km' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}</span></div>`).join('')}</div>`;
   html += `<div class="subrow"><button type="button" class="subtle" id="painBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>Schmerz melden</button>${p.kind !== 'rest' ? `<button type="button" class="subtle" id="unfitBtn">${d.unfit ? 'Nicht fit zurücknehmen' : 'Heute nicht fit'}</button>` : ''}</div>`;
   app.innerHTML = html;
-  $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank })));
+  $$('[data-go]', app).forEach((b) => b.addEventListener('click', () => go(b.dataset.go, { kind: b.dataset.kind, blank: !!b.dataset.blank, edit: !!b.dataset.edit })));
   play(app, 'today');
   $('#painBtn')?.addEventListener('click', () => openPain(d.date));
   $('#siBtn')?.addEventListener('click', () => go('day', { date: d.date }));

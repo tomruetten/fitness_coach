@@ -168,3 +168,50 @@ test('Status erledigt/ausgefallen und Durchschnitte in den Trends', async () => 
   assert.equal(tr.sleep.length, tr.labels.length);
   t.close();
 });
+
+test('Kraft: abgeschlossenes Training erscheint auf Heute, Bearbeiten, Workouts speichern, Gewichte vom letzten Mal', async () => {
+  const t = await boot();
+  const today = (await (await t.call('/api/today')).json()).date;
+  const body = { date: today, kind: null, exercises: [
+    { id: 'x_curl', name: 'Curls', reps_spec: '10', sets: [{ weight_kg: 8, reps: 10 }, { weight_kg: 8, reps: 10 }] },
+    { id: 'x_press', name: 'Schulterdrücken', reps_spec: '8', sets: [{ weight_kg: 12, reps: 8 }] },
+  ] };
+  assert.equal((await t.call('/api/strength/sets', { body })).status, 200);
+  const td = await (await t.call('/api/today')).json();
+  assert.deepEqual(td.strength_done.exercises.map((e) => e.name), ['Curls', 'Schulterdrücken']);
+  assert.equal(td.strength_done.sets, 3);
+  assert.equal(td.strength_done.volume_kg, 8 * 10 * 2 + 12 * 8);
+  // Bearbeiten liefert die gespeicherten Sätze; entfernte Übung verschwindet
+  const ed = await (await t.call('/api/strength/session?kind=strength_x&edit=1')).json();
+  assert.equal(ed.exercises.length, 2); assert.equal(ed.exercises[0].prefill[1].kg, 8);
+  await t.call('/api/strength/sets', { body: { ...body, edit: true, exercises: [body.exercises[0]] } });
+  assert.equal((await (await t.call('/api/today')).json()).strength_done.exercises.length, 1);
+  // Gespeicherte Workouts
+  assert.equal((await t.call('/api/strength/workouts', { body: { name: '', exercises: [] } })).status, 400);
+  await t.call('/api/strength/workouts', { body: { name: 'Arme', exercises: [{ id: 'x_curl', name: 'Curls', sets: 2, reps: '10' }] } });
+  const ws = (await (await t.call('/api/strength/workouts')).json()).workouts;
+  assert.equal(ws.length, 1); assert.equal(ws[0].exercises[0].name, 'Curls');
+  await t.call('/api/strength/workouts', { body: { delete: ws[0].id } });
+  assert.equal((await (await t.call('/api/strength/workouts')).json()).workouts.length, 0);
+  t.close();
+});
+
+test('Kraft: nächstes Mal sind die Gewichte vom letzten Mal vorbelegt', async () => {
+  const t = await boot();
+  const old = new Date(Date.now() - 5 * 864e5).toISOString().slice(0, 10);
+  await t.call('/api/strength/sets', { body: { date: old, kind: null, exercises: [{ id: 'x_curl', name: 'Curls', reps_spec: '10', sets: [{ weight_kg: 8, reps: 10 }, { weight_kg: 9, reps: 8 }] }] } });
+  const cat = (await (await t.call('/api/strength/exercises')).json()).exercises.find((e) => e.id === 'x_curl');
+  assert.deepEqual(cat.prefill.map((p) => p.kg).slice(0, 2), [8, 9]);
+  t.close();
+});
+
+test('Migration: Gewichte 7,5 und 12,5 kg vom 04.11.2026 werden einmalig auf 8 und 12 kg geändert', async () => {
+  const t = await boot();
+  const mk = (kg) => ({ id: 'x_a', name: 'A', reps_spec: '8', sets: [{ weight_kg: kg, reps: 8 }] });
+  await t.store.replaceSets('2026-11-04', [{ date: '2026-11-04', kind: null, exercise_id: 'a', exercise_name: 'A', set_no: 1, weight_kg: 7.5, reps: 8, done: true }, { date: '2026-11-04', kind: null, exercise_id: 'b', exercise_name: 'B', set_no: 1, weight_kg: 12.5, reps: 8, done: true }, { date: '2026-11-04', kind: null, exercise_id: 'c', exercise_name: 'C', set_no: 1, weight_kg: 10, reps: 8, done: true }]);
+  await t.call('/api/today');
+  const rows = await t.store.setsSince('2026-11-04');
+  assert.deepEqual(rows.map((r) => r.weight_kg).sort((a, b) => a - b), [8, 10, 12]);
+  void mk;
+  t.close();
+});

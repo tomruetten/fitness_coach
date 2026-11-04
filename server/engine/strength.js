@@ -33,7 +33,29 @@ export function lastSession(sets, exId, beforeDate) {
  * Baut die Einheit: Übungen aus der eigenen Vorlage (falls vorhanden) oder aus dem Plan,
  * je Übung die letzte Einheit und vorbefüllte Sätze.
  */
-export function sessionFor({ plan, kind, template, sets, date, notes = {}, blank = false }) {
+/** Heute abgehakte Sätze, gruppiert nach Übung (Reihenfolge wie gespeichert). */
+export function loggedDay(sets, date) {
+  const by = new Map();
+  for (const s of sets.filter((x) => x.date === date && x.done !== false)) {
+    const e = by.get(s.exercise_id) || { id: s.exercise_id, name: s.exercise_name, kind: s.kind || null, sets: [] };
+    e.sets.push({ kg: s.weight_kg ?? 0, reps: s.reps, no: s.set_no });
+    by.set(s.exercise_id, e);
+  }
+  const exercises = [...by.values()].map((e) => ({ ...e, sets: e.sets.sort((a, b) => a.no - b.no).map(({ no, ...x }) => x) }));
+  if (!exercises.length) return null;
+  const all = exercises.flatMap((e) => e.sets.map((x) => ({ ...x, timed: false })));
+  const volume = Math.round(exercises.reduce((a, e) => a + (isTimed(e.name) ? 0 : e.sets.reduce((v, x) => v + x.kg * x.reps, 0)), 0));
+  return { kind: exercises[0].kind, exercises, sets: all.length, volume_kg: volume };
+}
+
+export function sessionFor({ plan, kind, template, sets, date, notes = {}, blank = false, logged = null }) {
+  if (logged) {
+    const exercises = logged.exercises.map((b) => {
+      const last = lastSession(sets, b.id, date);
+      return { id: b.id, name: b.name, sets: b.sets.length, reps: String(b.sets[0]?.reps ?? 8), timed: false, weight_kg: null, delta_kg: null, note: null, memo: notes[b.id] || '', last, prefill: b.sets.map((x) => ({ kg: x.kg, reps: x.reps })), custom: true, done: true };
+    });
+    return { date, kind: logged.kind || kind, title: plan?.title || 'Training', summary: '', duration_min: 0, exercises, customized: false, blank: false, edit: true };
+  }
   if (blank) return { date, kind: 'strength_x', title: 'Freies Training', summary: '', duration_min: 0, exercises: [], customized: false, blank: true };
   const planned = plan?.exercises || [];
   const base = template?.[kind]?.length ? template[kind] : planned.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps }));
@@ -45,7 +67,7 @@ export function sessionFor({ plan, kind, template, sets, date, notes = {}, blank
     const timed = isTimed(b.reps);
     const n = Math.max(1, Math.min(10, Number(b.sets) || 3));
     const prefill = Array.from({ length: n }, (_, i) => ({
-      kg: p?.weight_kg ?? last?.sets[i]?.kg ?? lastTop ?? 0,
+      kg: last?.sets[i]?.kg ?? lastTop ?? p?.weight_kg ?? 0,
       reps: firstInt(b.reps) ?? last?.sets[i]?.reps ?? 8,
     }));
     return {

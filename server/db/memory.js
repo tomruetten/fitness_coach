@@ -37,6 +37,8 @@ export function createMemoryStore(persistPath = null) {
       rows.forEach((r) => t.sets.push({ id: t.sets.length + 1, ...r }));
       save();
     },
+    async deleteSets(date) { t.sets = t.sets.filter((s) => s.date !== date); save(); },
+    async remapWeights(date, map) { let n = 0; t.sets.forEach((s) => { if (s.date === date && map[s.weight_kg] != null) { s.weight_kg = map[s.weight_kg]; n++; } }); if (n) save(); return n; },
     async setsSince(date) { return t.sets.filter((s) => s.date >= date).sort((a, b) => a.date.localeCompare(b.date) || a.set_no - b.set_no); },
     async addPain(row) { t.pain.push({ id: t.pain.length + 1, ...row }); save(); },
     async painSince(date) { return t.pain.filter((p) => p.date >= date); },
