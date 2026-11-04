@@ -189,10 +189,11 @@ test('Kraft: abgeschlossenes Training erscheint auf Heute, Bearbeiten, Workouts 
   // Gespeicherte Workouts
   assert.equal((await t.call('/api/strength/workouts', { body: { name: '', exercises: [] } })).status, 400);
   await t.call('/api/strength/workouts', { body: { name: 'Arme', exercises: [{ id: 'x_curl', name: 'Curls', sets: 2, reps: '10' }] } });
-  const ws = (await (await t.call('/api/strength/workouts')).json()).workouts;
+  const list = async () => (await (await t.call('/api/strength/workouts')).json()).workouts.filter((w) => w.name === 'Arme');
+  const ws = await list();
   assert.equal(ws.length, 1); assert.equal(ws[0].exercises[0].name, 'Curls');
   await t.call('/api/strength/workouts', { body: { delete: ws[0].id } });
-  assert.equal((await (await t.call('/api/strength/workouts')).json()).workouts.length, 0);
+  assert.equal((await list()).length, 0);
   t.close();
 });
 
@@ -213,5 +214,19 @@ test('Migration: Gewichte 7,5 und 12,5 kg vom 04.11.2026 werden einmalig auf 8 u
   const rows = await t.store.setsSince('2026-11-04');
   assert.deepEqual(rows.map((r) => r.weight_kg).sort((a, b) => a - b), [8, 10, 12]);
   void mk;
+  t.close();
+});
+
+test('Migration: Training vom 04.11.2026 wird als Workout gespeichert', async () => {
+  const t = await boot();
+  const r = (id, n, no, kg) => ({ date: '2026-11-04', kind: null, exercise_id: id, exercise_name: n, set_no: no, weight_kg: kg, reps: 8, done: true });
+  await t.store.replaceSets('2026-11-04', [r('a', 'Bankdrücken', 1, 40), r('a', 'Bankdrücken', 2, 40), r('b', 'Split Squat', 1, 12)]);
+  await t.call('/api/today');
+  const ws = (await (await t.call('/api/strength/workouts')).json()).workouts;
+  assert.equal(ws.length, 1);
+  assert.equal(ws[0].name, 'Oberkörper/ Single Leg');
+  assert.deepEqual(ws[0].exercises.map((e) => [e.name, e.sets]), [['Bankdrücken', 2], ['Split Squat', 1]]);
+  await t.call('/api/today');
+  assert.equal((await (await t.call('/api/strength/workouts')).json()).workouts.length, 1);
   t.close();
 });
