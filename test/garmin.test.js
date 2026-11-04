@@ -93,3 +93,15 @@ test('Token-Import prüft den Token per Erneuerung und speichert ihn', async () 
     assert.equal((await (await t.call('/api/garmin/state')).json()).connected, true);
   } finally { setHttp(null); t.close(); }
 });
+
+test('Token-Import mit frischem Zugriffstoken braucht keine Anfrage an Garmin', async () => {
+  const t = await boot();
+  let hits = 0;
+  setHttp(async () => { hits++; return new Response('Rate limited', { status: 429 }); });
+  try {
+    const token = Buffer.from(JSON.stringify({ o: 'a', s: 'b', a: 'AT', e: Date.now() + 3600e3 })).toString('base64url');
+    assert.equal((await t.call('/api/garmin/import', { token })).status, 200);
+    assert.equal(hits, 0);
+    assert.equal((await t.store.getSetting('garmin_access')).accessToken, 'AT');
+  } finally { setHttp(null); t.close(); }
+});

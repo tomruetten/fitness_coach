@@ -16,8 +16,8 @@ try {
   const password = await ask('Passwort: ', true);
   let r = await garminLogin(email, password);
   if (r.mfaRequired) r = await garminLoginMfa(await ask('Bestätigungscode: '), r.jar, r.mfaMethod);
-  console.log('\nFertig. Diese Zeile in der App einfügen:\n');
-  console.log(Buffer.from(JSON.stringify({ o: r.oauthToken, s: r.oauthTokenSecret })).toString('base64url'));
+  console.log(`\nFertig (Zugriffstoken gültig bis ${new Date(r.expiresAt).toLocaleString('de-DE')}). Diese Zeile in der App einfügen:\n`);
+  console.log(Buffer.from(JSON.stringify({ o: r.oauthToken, s: r.oauthTokenSecret, a: r.accessToken, e: r.expiresAt })).toString('base64url'));
   console.log();
 } catch (e) { console.error('Fehler:', e.message); process.exitCode = 1; }
 rl.close();

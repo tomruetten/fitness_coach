@@ -149,7 +149,11 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const o = await store.getSetting('garmin_oauth');
     if (!o?.oauthToken) throw authError('Nicht mit Garmin verbunden. Bitte im Profil verbinden.');
     let t;
-    try { t = await garminRefreshToken(o.oauthToken, o.oauthTokenSecret); } catch (e) { throw authError(`Garmin-Anmeldung abgelaufen (${e.message}). Bitte im Profil neu verbinden.`); }
+    try { t = await garminRefreshToken(o.oauthToken, o.oauthTokenSecret); } catch (e) {
+      // Wird die Erneuerung gedrosselt, den noch gültigen alten Token weiterverwenden.
+      if (acc?.accessToken && acc.expiresAt - Date.now() > 30 * 1000) return acc.accessToken;
+      throw authError(`Garmin-Anmeldung konnte nicht erneuert werden (${e.message}). Bitte im Profil neu verbinden.`);
+    }
     await store.setSetting('garmin_access', { accessToken: t.accessToken, expiresAt: t.expiresAt });
     return t.accessToken;
   };
@@ -175,7 +179,12 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     let tok;
     try { tok = JSON.parse(Buffer.from(String(req.body?.token || '').trim(), 'base64url').toString('utf8')); } catch { /* unten gemeldet */ }
     if (!tok?.o || !tok?.s) return res.status(400).json({ error: 'Token nicht lesbar. Bitte die komplette Zeile aus dem Skript einfügen.' });
-    try { const r = await garminRefreshToken(tok.o, tok.s); await saveGarminLogin({ ...r, oauthToken: tok.o, oauthTokenSecret: tok.s }); res.json({ connected: true }); } catch (e) { res.status(400).json({ error: e.message }); }
+    try {
+      // Der Zugriffstoken aus dem Skript ist frisch; ihn direkt zu übernehmen vermeidet eine Anfrage, die Garmin vom Server aus oft drosselt.
+      const r = tok.a && tok.e > Date.now() + 60 * 1000 ? { accessToken: tok.a, expiresAt: tok.e } : await garminRefreshToken(tok.o, tok.s);
+      await saveGarminLogin({ ...r, oauthToken: tok.o, oauthTokenSecret: tok.s });
+      res.json({ connected: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
   }));
   app.post('/api/garmin/verify-mfa', wrap(async (req, res) => {
     const { mfaCode, mfaState } = req.body || {};
