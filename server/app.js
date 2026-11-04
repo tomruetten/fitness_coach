@@ -170,6 +170,13 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       res.json({ connected: true });
     } catch (e) { res.status(400).json({ error: e.message }); }
   }));
+  // Alternative zur Anmeldung vom Server aus: Token, den scripts/garmin-login.js auf dem eigenen Rechner erzeugt hat.
+  app.post('/api/garmin/import', wrap(async (req, res) => {
+    let tok;
+    try { tok = JSON.parse(Buffer.from(String(req.body?.token || '').trim(), 'base64url').toString('utf8')); } catch { /* unten gemeldet */ }
+    if (!tok?.o || !tok?.s) return res.status(400).json({ error: 'Token nicht lesbar. Bitte die komplette Zeile aus dem Skript einfügen.' });
+    try { const r = await garminRefreshToken(tok.o, tok.s); await saveGarminLogin({ ...r, oauthToken: tok.o, oauthTokenSecret: tok.s }); res.json({ connected: true }); } catch (e) { res.status(400).json({ error: e.message }); }
+  }));
   app.post('/api/garmin/verify-mfa', wrap(async (req, res) => {
     const { mfaCode, mfaState } = req.body || {};
     const pending = decryptState(mfaState);

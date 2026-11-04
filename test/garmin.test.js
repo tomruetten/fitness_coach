@@ -77,3 +77,19 @@ test('Senden: erneuert Token, legt an, plant ein und ersetzt beim zweiten Mal', 
     assert.equal((await (await t.call('/api/garmin/state')).json()).connected, false);
   } finally { setHttp(null); t.close(); }
 });
+
+test('Token-Import prüft den Token per Erneuerung und speichert ihn', async () => {
+  const t = await boot();
+  setHttp(async (url) => {
+    const u = String(url);
+    if (u.includes('thegarth')) throw new Error('offline');
+    if (u.includes('/oauth/exchange/user/2.0')) return new Response(JSON.stringify({ access_token: 'AT', expires_in: 3600 }), { status: 200 });
+    return new Response('', { status: 200 });
+  });
+  try {
+    assert.equal((await t.call('/api/garmin/import', { token: 'kaputt' })).status, 400);
+    const token = Buffer.from(JSON.stringify({ o: 'a', s: 'b' })).toString('base64url');
+    assert.equal((await t.call('/api/garmin/import', { token })).status, 200);
+    assert.equal((await (await t.call('/api/garmin/state')).json()).connected, true);
+  } finally { setHttp(null); t.close(); }
+});

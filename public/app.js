@@ -276,17 +276,20 @@ function openGarminConnect(onDone) {
   el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Mit Garmin verbinden"><div class="grabber"></div><h3>Mit Garmin verbinden</h3>
     <p class="muted" id="gcInfo">Damit die App Trainings an deine Uhr senden kann, melde dich einmal bei Garmin Connect an. Das Passwort wird nicht gespeichert, nur ein Anmelde-Token.</p>
     <div id="gcCred"><input class="txt" id="gcMail" type="email" placeholder="Garmin E-Mail" autocomplete="username" autocapitalize="off"><input class="txt" id="gcPass" type="password" placeholder="Passwort" autocomplete="current-password"></div>
+    <div id="gcTokBox" hidden><input class="txt" id="gcTok" placeholder="Token aus dem Skript einfügen" autocomplete="off" autocapitalize="off"></div>
     <div id="gcMfa" hidden><input class="txt" id="gcCode" inputmode="numeric" placeholder="Code aus E-Mail oder App" autocomplete="one-time-code"></div>
     <p class="gcerr" id="gcErr" hidden></p>
-    <button type="button" class="cta" id="gcGo">Verbinden</button><button type="button" class="link" id="gcCancel">Abbrechen</button></div>`;
+    <button type="button" class="cta" id="gcGo">Verbinden</button><button type="button" class="link" id="gcTokLink">Token aus Skript einfügen</button><button type="button" class="link" id="gcCancel">Abbrechen</button></div>`;
   document.body.append(el);
   requestAnimationFrame(() => el.classList.add('open'));
   const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
   $('.sheet-bg', el).onclick = close; $('#gcCancel', el).onclick = close;
+  let tokMode = false;
+  $('#gcTokLink', el).onclick = () => { tokMode = !tokMode; $('#gcCred', el).hidden = tokMode; $('#gcTokBox', el).hidden = !tokMode; $('#gcTokLink', el).textContent = tokMode ? 'Mit E-Mail und Passwort' : 'Token aus Skript einfügen'; $('#gcInfo', el).textContent = tokMode ? 'Führe auf deinem Rechner „node scripts/garmin-login.js“ aus und füge die ausgegebene Zeile hier ein. Hilft, wenn Garmin Anmeldungen vom Server drosselt.' : 'Damit die App Trainings an deine Uhr senden kann, melde dich einmal bei Garmin Connect an. Das Passwort wird nicht gespeichert, nur ein Anmelde-Token.'; };
   $('#gcGo', el).onclick = async () => {
     const btn = $('#gcGo', el); btn.disabled = true; btn.textContent = 'Verbinde …'; $('#gcErr', el).hidden = true;
     try {
-      const r = mfaState ? await api('/garmin/verify-mfa', { mfaCode: $('#gcCode', el).value.trim(), mfaState }) : await api('/garmin/connect', { email: $('#gcMail', el).value, password: $('#gcPass', el).value });
+      const r = tokMode ? await api('/garmin/import', { token: $('#gcTok', el).value }) : mfaState ? await api('/garmin/verify-mfa', { mfaCode: $('#gcCode', el).value.trim(), mfaState }) : await api('/garmin/connect', { email: $('#gcMail', el).value, password: $('#gcPass', el).value });
       if (r.mfaRequired) {
         mfaState = r.mfaState;
         $('#gcCred', el).hidden = true; $('#gcMfa', el).hidden = false;

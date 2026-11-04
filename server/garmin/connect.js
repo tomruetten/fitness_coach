@@ -84,6 +84,9 @@ function oauth1Header(method, url, consumerKey, consumerSecret, token = null, to
   return 'OAuth ' + Object.entries(oauthP).map(([k, v]) => `${k}="${enc(v)}"`).join(', ');
 }
 const enc = encodeURIComponent;
+const oauth1Error = (status, body) => status === 429
+  ? 'Garmin begrenzt gerade Anmeldungen von diesem Server (429). Später erneut versuchen oder den Token per Skript importieren (siehe README).'
+  : `Garmin OAuth1-Anfrage fehlgeschlagen (${status}): ${String(body).slice(0, 120)}`;
 
 
 // Minimal cookie jar – Node's fetch does not persist cookies across requests,
@@ -183,7 +186,7 @@ export async function garminLogin(email, password) {
   });
   const body4 = await r4.text();
   if (!r4.ok) {
-    throw new Error(`Garmin OAuth1-Anfrage fehlgeschlagen (${r4.status}): ${body4.slice(0, 120)}`);
+    throw new Error(oauth1Error(r4.status, body4));
   }
   // Response is URL-encoded key=value pairs, not JSON
   const o1 = Object.fromEntries(new URLSearchParams(body4));
@@ -259,7 +262,7 @@ export async function garminLoginMfa(mfaCode, jarEntries, mfaMethod = 'email') {
     headers: { 'User-Agent': OAUTH_UA, 'Authorization': preAuth, 'Cookie': cookieHeader(jar) },
   });
   const body4 = await r4.text();
-  if (!r4.ok) throw new Error(`Garmin OAuth1-Anfrage fehlgeschlagen (${r4.status}): ${body4.slice(0, 120)}`);
+  if (!r4.ok) throw new Error(oauth1Error(r4.status, body4));
   const o1 = Object.fromEntries(new URLSearchParams(body4));
   if (!o1.oauth_token || !o1.oauth_token_secret) throw new Error('Garmin OAuth1-Token nicht erhalten');
 
