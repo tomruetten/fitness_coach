@@ -8,8 +8,9 @@ import { zoneBounds, fmtPace } from './zones.js';
 import { buildQuality, runEasy, runLong, strengthSession } from './sessions.js';
 import { fitnessState } from './fitness.js';
 import { planLong, planQuality, weeklyPlan } from './progression.js';
+import { raceInfo, raceQuality, racePlan } from './race.js';
 
-export const BLOCK_LABEL = { basis: 'Basis', aufbau: 'Aufbau' };
+export const BLOCK_LABEL = { basis: 'Basis', aufbau: 'Aufbau', spezifisch: 'Rennvorbereitung', taper: 'Tapering', rennwoche: 'Rennwoche' };
 
 export function withDefaults(settings = {}) {
   const s = { ...DEFAULT_SETTINGS, ...settings, goal: { ...DEFAULT_SETTINGS.goal, ...(settings.goal || {}) }, week: { ...DEFAULT_SETTINGS.week, ...(settings.week || {}) } };
@@ -132,9 +133,25 @@ export function planningContext(ctx, settings, rd) {
   const today = ctx.today || ctx.date;
   const asOf = ctx.date > today ? today : ctx.date;
   const fit = fitnessState({ activities: ctx.activities || [], days: ctx.days || [], settings, asOf });
-  const wp = weeklyPlan(ctx.activities || [], ctx.date, { level: rd?.level || 'good', acwr: rd?.acwr ?? null });
-  const block = { name: wp.deload || wp.c === 1 ? 'basis' : 'aufbau', week: wp.c, deload: wp.deload };
-  return { fit, wp, block };
+  let wp = weeklyPlan(ctx.activities || [], ctx.date, { level: rd?.level || 'good', acwr: rd?.acwr ?? null });
+  let block = { name: wp.deload || wp.c === 1 ? 'basis' : 'aufbau', week: wp.c, deload: wp.deload };
+  // Rennmodus (nur mit Zielzeit und Datum): Tapering, keine Entlastung kurz vor dem Rennen, Phasenname
+  const race = raceInfo(settings, ctx.date, fit);
+  if (race) {
+    const peak = Math.max(0, ...(wp.w || []).slice(1, 5).filter(Number.isFinite));
+    if ((race.phase === 'taper' || race.phase === 'rennwoche') && peak > 0) {
+      const f = race.phase === 'taper' ? 0.75 : 0.5;
+      const target = Math.round(peak * f * 2) / 2;
+      wp = { ...wp, target, deload: false, reason: `${race.label}: Umfang auf ${Math.round(f * 100)} % der Spitzenwoche (${target} km), Intensität bleibt kurz und knackig` };
+      block = { name: race.phase, week: wp.c, deload: false };
+    } else if (race.phase === 'spezifisch') {
+      if (wp.deload && race.weeksLeft <= 3) {
+        wp = { ...wp, deload: false, c: 3, target: Math.round(Math.max(wp.w[1] || 0, wp.w[2] || 0) * 2) / 2, reason: 'Vor dem Rennen keine Entlastungswoche mehr: Umfang gehalten' };
+      }
+      block = { name: 'spezifisch', week: wp.c, deload: wp.deload };
+    }
+  }
+  return { fit, wp, block, race };
 }
 
 /**
@@ -153,7 +170,9 @@ export function planDay(ctx, opts = {}) {
   const level = rd.level;
   const pc = opts.pc || planningContext(ctx, settings, rd);
   const { fit, wp, block } = pc;
-  const base = { date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional, moved: !!settings._ov?.[date] && settings._ov[date] !== (settings.week[wd]?.kind || 'rest') };
+  const raceDay = raceInfo(settings, date, fit);
+  const raceNote = raceDay ? { date: raceDay.date, daysLeft: raceDay.daysLeft, weeksLeft: raceDay.weeksLeft, phase: raceDay.phase, label: raceDay.label, goalPace: raceDay.goalPace, usedPace: raceDay.usedPace, capped: raceDay.capped } : null;
+  const base = { race: raceNote, date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional, moved: !!settings._ov?.[date] && settings._ov[date] !== (settings.week[wd]?.kind || 'rest') };
 
   const loadHigh = rd.signals?.some((s) => s.id === 'R-LOAD');
   const scaleWeek = block.deload ? 0.8 : loadHigh ? 0.85 : 1;
@@ -161,6 +180,15 @@ export function planDay(ctx, opts = {}) {
   const recentPain = (ctx.pain || []).some((x) => diffDays(date, x.date) >= 0 && diffDays(date, x.date) <= 7 && x.level >= RULES.painThreshold);
   const fitWhy = () => fit.source === 'läufe' && fit.anchor ? [{ rule: 'R-FIT', text: `Leistungsstand VDOT ${fit.vdot.toString().replace('.', ',')} (Beleg ${fit.anchor.date.slice(8, 10)}.${fit.anchor.date.slice(5, 7)}.: ${Math.round(fit.anchor.dur_s / 60)} min, Ø ${fmtPace(fit.anchor.pace_s)} /km, Puls ${fit.anchor.hr}${fit.trend != null ? `, Puls-Tempo-Trend ${fit.trend > 0 ? '+' : ''}${fit.trend.toString().replace('.', ',')} %` : ''}): Schwelle ${fmtPace(fit.paces.threshold)}, Intervall ${fmtPace(fit.paces.interval)}, locker ${fmtPace(fit.paces.easy)}` }] : [{ rule: 'R-FIT', text: `Noch kein harter Lauf als Beleg: Tempi aus deiner Schwellenpace (${fmtPace(settings.lt_pace_s)}), Leistungsstand wird mit den nächsten harten Läufen genauer` }];
   if (loadHigh) why.push({ rule: 'R-LOAD', text: rd.signals.find((s) => s.id === 'R-LOAD').text + ': diese Woche entlastet' });
+
+  // Renntag und Tag davor
+  if (raceDay && raceDay.daysLeft === 0) {
+    return { ...base, kind: 'run_race', label: 'Wettkampf', fixed: true, ...racePlan(raceDay, settings), why: [{ rule: 'R-RACE', text: `Rennen am ${date.slice(8, 10)}.${date.slice(5, 7)}.: Ziel ${Math.floor(raceDay.time_s / 3600)}:${String(Math.floor((raceDay.time_s % 3600) / 60)).padStart(2, '0')}:${String(raceDay.time_s % 60).padStart(2, '0')}${raceDay.capped ? `. Hinweis: Ziel braucht VDOT ${raceDay.requiredVdot}, dein Stand ist ${raceDay.currentVdot}. Starte kontrolliert und prüfe nach 5 km, ob die Pace stimmt.` : ''}` }] };
+  }
+  if (raceDay && raceDay.daysLeft === 1 && slot.kind !== 'rest' && slot.kind !== 'spinning') {
+    const s = runEasy(22, fit, settings, 'Lockerer Lauf vor dem Rennen');
+    return { ...base, kind: 'run_easy', label: 'Lauf vor dem Rennen', ...s, why: [{ rule: 'R-RACE', text: 'Tag vor dem Rennen: kurz und locker, ein paar Steigerungen, Beine frisch halten' }] };
+  }
 
   if (slot.kind === 'rest') {
     return { ...base, title: 'Ruhetag', summary: 'Erholung ist Teil des Trainings. Spaziergang oder Mobilität sind in Ordnung.', steps: [], why, targets: {} };
@@ -186,6 +214,12 @@ export function planDay(ctx, opts = {}) {
       const s = runEasy(Math.round(40 * scaleWeek), fit, settings, 'Lockerer Lauf statt Qualität');
       return { ...base, ...s, why, adjusted: true };
     }
+    const rq = raceQuality(raceDay, opts.provisional ? 'good' : level);
+    if (rq) {
+      const q = buildQuality(rq, fit, settings);
+      const txt = { rennwoche: 'Rennwoche: nur Aktivierung, kurze Steigerungen, die Beine sollen frisch bleiben', taper: 'Tapering: kurze Renntempo-Einheit, Intensität bleibt, Umfang sinkt', spezifisch: `Rennvorbereitung (noch ${raceDay.weeksLeft} Wochen): Renntempo ${Math.floor(raceDay.usedPace / 60)}:${String(raceDay.usedPace % 60).padStart(2, '0')} min/km${raceDay.capped ? `, vorerst begrenzt, denn die Zielpace braucht VDOT ${raceDay.requiredVdot} (aktuell ${raceDay.currentVdot})` : ''}` }[raceDay.phase];
+      return { ...base, ...q, why: [...fitWhy(), { rule: 'R-RACE', text: txt }, ...why], adjusted: level === 'medium' && !opts.provisional, kindQ: rq.type };
+    }
     const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: !!opts.provisional, volScale: missed.length >= 2 ? 0.85 : 1 });
     const q = buildQuality(pq.structure, fit, settings);
     return { ...base, ...q, why: [...fitWhy(), ...(wp.deload ? [{ rule: 'R-DELOAD', text: wp.reason }] : []), ...pq.why, ...why], adjusted: (level === 'medium' && !opts.provisional) || missed.length >= 2, kindQ: pq.kind };
@@ -199,7 +233,19 @@ export function planDay(ctx, opts = {}) {
     let scale = 1;
     if (!opts.provisional && level === 'medium') { scale = 0.85; const s = rd.signals.find((x) => x.id !== 'R-LOAD') || rd.signals[0]; if (s) why.push({ rule: s.id, text: s.text + ': langer Lauf um etwa 15 % kürzer, ohne Endteil' }); }
     if (!opts.provisional && level === 'low') { scale = 0.7; for (const s of rd.signals.slice(0, 2)) why.push({ rule: s.id, text: s.text }); why.push({ rule: 'R-EASY', text: 'Mehrere Erholungssignale: langer Lauf um 30 % kürzer' }); }
-    const s = runLong(pl.km, pl.finish, fit, settings, { scale });
+    let longKm = pl.km, finish = pl.finish;
+    if (raceDay && raceDay.daysLeft > 0) {
+      const recent = acts.filter((a) => a.sport === 'running' && diffDays(date, a.local_date) > 0 && diffDays(date, a.local_date) <= 35).map((a) => a.distance_m / 1000);
+      const longest = Math.max(0, ...recent);
+      if (raceDay.phase === 'rennwoche') { longKm = 8; finish = null; why.push({ rule: 'R-RACE', text: 'Rennwoche: nur ein kurzer, lockerer Lauf' }); }
+      else if (raceDay.phase === 'taper') { longKm = Math.max(8, Math.min(longKm, Math.round(longest * 0.65))); finish = null; why.push({ rule: 'R-RACE', text: `Tapering: langer Lauf auf ${longKm} km gekürzt, locker` }); }
+      else if (finish && (raceDay.phase === 'aufbau' || raceDay.phase === 'spezifisch')) {
+        const fk = raceDay.phase === 'spezifisch' ? Math.min(8, Math.max(4, Math.round(longKm * 0.3))) : finish.km;
+        finish = { km: Math.min(fk, Math.floor(longKm / 2)), pace_s: raceDay.usedPace, label: 'Zielrenntempo' };
+        why.push({ rule: 'R-RACE', text: `Letzte ${finish.km} km im Zielrenntempo (${Math.floor(raceDay.usedPace / 60)}:${String(raceDay.usedPace % 60).padStart(2, '0')} min/km)` });
+      }
+    }
+    const s = runLong(longKm, finish, fit, settings, { scale });
     return { ...base, ...s, why: [...fitWhy(), ...why], adjusted: scale < 1 };
   }
 
@@ -223,6 +269,7 @@ export function planDay(ctx, opts = {}) {
       if (pain) why.push({ rule: 'R-PAIN', text: `Schmerz im Bereich „${pain.area}“ gemeldet: belastende Übungen weglassen oder ersetzen` });
     }
     if (block.deload) levelS = levelS === 'full' ? 'reduced' : levelS;
+    if (raceDay && raceDay.phase === 'rennwoche') { levelS = 'light'; why.push({ rule: 'R-RACE', text: 'Rennwoche: Kraft nur leicht, damit die Beine frisch sind' }); }
     const s = strengthSession(slot.kind, { block, level: levelS, lastLogs: lastLogsByExercise(ctx.strengthLog), legLight, maxMin: settings.strength_max_min });
     return { ...base, ...s, why, adjusted: levelS !== 'full' || legLight };
   }

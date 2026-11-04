@@ -40,6 +40,12 @@ export function buildQuality(q, fit, settings) {
     title = `VO2max ${q.reps} × ${q.repMin} min`;
     summary = 'Schnelle, kurze Intervalle verbessern die maximale Sauerstoffaufnahme. Kontrolliert starten, die letzte Wiederholung wie die erste.';
     pace = p.interval;
+  } else if (q.type === 'racepace') {
+    steps.push({ label: 'Renntempo-Intervalle', detail: `${q.reps} × ${q.repMin} min bei ${fmtPace(q.pace_s)} min/km (Halbmarathon-Zielpace), ${q.recMin} min locker traben` });
+    km += (q.reps * q.repMin * 60) / q.pace_s + ((q.reps - 1) * q.recMin * 60) / p.easy;
+    title = `Renntempo ${q.reps} × ${q.repMin} min`;
+    summary = 'Das Tempo, das du im Rennen laufen willst, in Abschnitten: Gefühl für die Pace und Ökonomie bei Renngeschwindigkeit.';
+    pace = q.pace_s;
   } else {
     steps.push({ label: '30-Minuten-Test', detail: `30 min so gleichmäßig schnell wie möglich laufen. Erster Kilometer ca. ${fmtPace(p.test30 + 4)} min/km, dann Tempo halten, Erwartung etwa ${fmtPace(p.test30)} min/km` });
     km += (30 * 60) / p.test30;
@@ -55,6 +61,7 @@ export function buildQuality(q, fit, settings) {
   else if (q.type === 'threshold') profile.push(...rep(q.reps, q.repMin, 'thr', p.threshold, q.recMin));
   else if (q.type === 'tempo') profile.push(seg(q.workMin, 'thr', p.threshold));
   else if (q.type === 'vo2') profile.push(...rep(q.reps, q.repMin, 'int', p.interval, q.recMin));
+  else if (q.type === 'racepace') profile.push(...rep(q.reps, q.repMin, 'mar', q.pace_s, q.recMin));
   else profile.push(seg(30, 'thr', p.test30));
   profile.push(seg(CD_MIN, 'easy', p.easy));
   return { title, summary, steps, profile, targets: { distance_km: round1(km), pace_s: pace, hr_from: settings._z4from, hr_to: settings.lthr }, structure: q };

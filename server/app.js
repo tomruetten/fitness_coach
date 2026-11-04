@@ -7,7 +7,8 @@ import { garminLogin, garminLoginMfa, garminRefreshToken, pushWorkout, scheduleW
 import { planToWorkout } from './garmin/workout.js';
 import { loginOptions, registrationOptions, verifyLogin, verifyRegistration } from './auth/passkeys.js';
 import { loadContext, loadSettings, todayIn } from './context.js';
-import { planningContext, planDay, planWeek, readiness, slotOf } from './engine/planner.js';
+import { planningContext, planDay, planWeek, readiness, slotOf, withDefaults } from './engine/planner.js';
+import { raceInfo } from './engine/race.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
@@ -460,7 +461,10 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { _z2from, _z2to, _z4from, ...out } = s;
     const ctx = await loadContext(store);
     const est = estimateThreshold(ctx.activities, ctx.settings, ctx.date);
-    res.json({ ...out, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
+    const pc0 = planningContext(ctx, withDefaults(ctx.settings), null);
+    const ri = raceInfo(withDefaults(ctx.settings), ctx.date, pc0.fit);
+    const goal_status = ri ? { phase: ri.phase, label: ri.label, daysLeft: ri.daysLeft, weeksLeft: ri.weeksLeft, usedPace: ri.usedPace, capped: ri.capped, requiredVdot: ri.requiredVdot, currentVdot: ri.currentVdot } : null;
+    res.json({ ...out, goal_status, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};
