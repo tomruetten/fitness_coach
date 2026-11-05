@@ -19,7 +19,7 @@ h2{font-size:13px;font-weight:600;color:var(--mute2);margin:8px 4px 0}
 .blurb{margin:0;color:var(--mute2);font-size:15px}
 .zone{display:flex;flex-direction:column;gap:8px}.zl{display:flex;justify-content:space-between;font-size:13px;font-weight:600}
 .zb{display:flex;gap:3px;height:8px}.zb i{display:block;border-radius:0}.zb i:first-child{border-radius:4px 0 0 4px}.zb i:last-child{border-radius:0 4px 4px 0}
-.zt{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);font-weight:500}.zt .on{color:var(--ink);font-weight:700}
+.zt{display:flex;gap:3px;justify-content:space-between;font-size:11px;color:var(--mute);font-weight:500}.zt .on{color:var(--ink);font-weight:700}
 .lines{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .line{display:flex;align-items:baseline;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}.line:last-child{border-bottom:0;padding-bottom:0}
 .ln{flex:1;font-size:15px;font-weight:600}.lv{font-size:13.5px;color:var(--mute);text-align:right}.more-line{padding:11px 0 0;font-size:14px;color:var(--mute)}.dspace{width:44px}
@@ -453,3 +453,5 @@ body::before{display:none}
 .card.energy .en-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;gap:2px}.card.energy .en-bar i{display:block;height:8px}
 .card.energy .en-lines{display:flex;flex-direction:column;border-top:1px solid var(--line)}.card.energy .en-lines div{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}.card.energy .en-lines div:last-child{border-bottom:0;padding-bottom:0}.card.energy .en-lines span{color:var(--mute)}
 .card.energy .fine{margin:0;font-size:13px;line-height:1.4;color:var(--mute)}
+
+.zone .zt span{text-align:center;min-width:0}
