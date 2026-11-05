@@ -3,6 +3,7 @@ import { MAX_DAYS, MAX_PAGE } from './client.js';
 import { activityFromFit } from './fit.js';
 import { addDays, diffDays } from '../engine/dates.js';
 import { DEFAULT_SETTINGS } from '../engine/config.js';
+import { kcalFrom } from '../engine/energy.js';
 
 const todayIn = (tz) => new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
@@ -63,6 +64,15 @@ export async function syncHealth(client, store, { from, to }) {
     hrvs: hrvs.flatMap((x) => listOf(x, 'hrvSummaries')),
   });
   if (rows.length) await store.upsertDays(rows);
+  try { // Garmin-Kalorien (falls die Antwort sie enthält) zum Abgleich mit der eigenen Schätzung merken
+    const gk = kcalFrom(summaries.flatMap((x) => listOf(x, 'dailySummaries', 'dailyStats')));
+    if (Object.keys(gk).length) {
+      const old = (await store.getSetting('garmin_kcal')) || {};
+      const merged = { ...old, ...gk };
+      const keep = Object.keys(merged).sort().slice(-90);
+      await store.setSetting('garmin_kcal', Object.fromEntries(keep.map((k) => [k, merged[k]])));
+    }
+  } catch (e) { console.warn('Garmin-Kalorien nicht gelesen:', e.message); }
   const cnt = (k) => rows.filter((r) => r[k] != null).length;
   return { rows: rows.length, hrv: cnt('hrv_avg'), rhr: cnt('resting_hr'), sleep: cnt('sleep_s'), errors: [...new Set(errs)].slice(0, 3), failed: [summaries, sleeps, hrvs].reduce((n, a) => n + a.filter((x) => x == null).length, 0) };
 }

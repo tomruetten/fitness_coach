@@ -230,3 +230,18 @@ test('Migration: Training vom 04.11.2026 wird als Workout gespeichert', async ()
   assert.equal((await (await t.call('/api/strength/workouts')).json()).workouts.length, 1);
   t.close();
 });
+
+test('Energiebedarf auf Heute, Körperdaten und Gewichtslog', async () => {
+  const t = await boot();
+  const td = await (await t.call('/api/today')).json();
+  assert.ok(td.energy.kcal > 2000 && td.energy.carbs_g > 0);
+  assert.equal(td.energy.body.height_cm, 188);
+  await t.call('/api/settings', { body: { body: { weight_kg: 80.5 } } });
+  const s = await (await t.call('/api/settings')).json();
+  assert.equal(s.body.weight_kg, 80.5);
+  const td2 = await (await t.call('/api/today')).json();
+  assert.equal(td2.energy.last_weight.kg, 80.5);
+  await t.call('/api/settings', { body: { height_cm: 10 } });
+  assert.equal((await (await t.call('/api/settings')).json()).body.height_cm, 188);
+  t.close();
+});

@@ -242,13 +242,31 @@ function bindStatus(root, date, after) {
   }));
 }
 
+/** Heute: täglicher Energiebedarf aus Körperdaten, Schritten und Training. */
+function energyCard(d) {
+  const e = d.energy; if (!e) return '';
+  const n = (v) => Math.round(v).toLocaleString('de-DE');
+  const kind = e.source === 'ist' ? 'tatsächliches Training' : 'geplantes Training';
+  const sport = { running: 'Laufen', cycling: 'Rad', strength: 'Kraft' };
+  const share = (v) => Math.max(0, Math.round((v / (e.protein_g * 4 + e.carbs_g * 4 + e.fat_g * 9)) * 100));
+  const w = e.last_weight ? `${String(e.last_weight.kg).replace('.', ',')} kg` : `${String(e.body.weight_kg).replace('.', ',')} kg`;
+  return `<h2>Energiebedarf</h2><div class="card energy">
+    <div class="en-top"><div class="en-big">${n(e.kcal)}<small> kcal</small></div><span class="en-rng">${n(e.low)}–${n(e.high)}</span></div>
+    <div class="en-split"><div><span>Eiweiß</span><b>${e.protein_g}<small> g</small></b></div><div><span>Kohlenhydrate</span><b>${e.carbs_g}<small> g</small></b></div><div><span>Fett</span><b>${e.fat_g}<small> g</small></b></div></div>
+    <div class="en-bar" aria-hidden="true"><i style="width:${share(e.protein_g * 4)}%;background:var(--purple)"></i><i style="width:${share(e.carbs_g * 4)}%;background:var(--acc)"></i><i style="width:${share(e.fat_g * 9)}%;background:var(--good)"></i></div>
+    <div class="en-lines"><div><span>Grundumsatz und Alltag</span><b>${n(e.daily + e.walk)} kcal</b></div>${e.exercise ? `<div><span>Training (${kind}${e.parts.length ? ': ' + e.parts.map((p) => sport[p.sport] || p.sport).join(', ') : ''})</span><b>${n(e.exercise)} kcal</b></div>` : '<div><span>Training</span><b>Ruhetag</b></div>'}${e.garmin?.total ? `<div><span>Garmin meldet bisher</span><b>${n(e.garmin.total)} kcal</b></div>` : ''}</div>
+    ${e.tip ? `<p class="fine">${esc(e.tip)}</p>` : ''}
+    <p class="fine">${String(e.carbs_per_kg).replace('.', ',')} g Kohlenhydrate pro kg. Gewicht ${w}${e.trend != null ? `, Trend ${e.trend > 0 ? '+' : ''}${String(e.trend).replace('.', ',')} kg pro Woche` : ''}. ${e.advice ? esc(e.advice.text) : 'Trage dein Gewicht im Profil ein, dann gleicht Coach die Schätzung nach zwei bis drei Wochen an.'}</p>
+  </div>`;
+}
+
 function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d) + cockpit(d);
   html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, garmin: d.garmin, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
   if (g === 'run') html += `<div id="wx"></div>` + fitCard(d);
-  html += infoCard(d, true);
+  html += infoCard(d, true) + energyCard(d);
   const main = d.evaluation ? d.done.find((x) => x.id === d.evaluation.activity_id) : null;
   if (main) html += statsCard(main) + evalCard(d.evaluation) + (main.sport === 'running' ? '<button type="button" class="link solo" id="siBtn">Soll und Ist mit Kilometerzeiten ansehen</button>' : '');
   const rest = d.done.filter((x) => !main || x.id !== main.id);
@@ -570,6 +588,7 @@ async function viewMore(isCurrent = () => true) {
   if (isCurrent() && JSON.stringify(fresh) !== JSON.stringify(cached) && !app.contains(document.activeElement && document.activeElement.matches('input') ? document.activeElement : null)) draw(fresh);
   function draw({ s, st, pu, gs }) {
     const g = s.goal || {};
+    const bd = s.body || { height_cm: 188, weight_kg: 79, age: 25 };
     const ts = s.thresholdSuggestion;
     const ic = (c, svg) => `<i class="si2 ${c}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg></i>`;
     const IC = {
@@ -583,6 +602,8 @@ async function viewMore(isCurrent = () => true) {
       key: ic('gray', '<circle cx="8" cy="14" r="3.5"/><path d="M10.5 11.5L20 4M16 8l3 3"/>'),
       watch: ic('green', '<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.7-3h4.6L15 6M9 18l.7 3h4.6l.7-3M12 10v2.5l1.5 1"/>'),
       dumb: ic('purple', '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
+      body: ic('teal', '<circle cx="12" cy="5" r="2.2"/><path d="M12 8v6M8 10l4-2 4 2M9 21l3-7 3 7"/>'),
+      scale: ic('teal', '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 9a5 5 0 017 0M12 12l2-2"/>'),
       flag: ic('orange', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
@@ -598,6 +619,11 @@ async function viewMore(isCurrent = () => true) {
       ${row(IC.pace, 'Schwellentempo', 'ltp', pace(s.lt_pace_s), '/km', 'inputmode="numeric"')}
       ${row(IC.easy, 'Lockeres Tempo', 'ezp', pace(s.easy_pace_s), '/km', 'inputmode="numeric"')}
     </div><p class="gfoot">Das Schwellentempo ist nur der Startwert. Sobald harte Läufe vorliegen, berechnet die App den Leistungsstand daraus selbst.</p>
+    <h2>Körper</h2><div class="group">
+      ${row(IC.body, 'Größe', 'hgt', bd.height_cm, 'cm', 'inputmode="numeric"')}
+      ${row(IC.scale, 'Gewicht', 'wgt', String(bd.weight_kg).replace('.', ','), 'kg', 'inputmode="decimal"')}
+      ${row(IC.cal, 'Alter', 'age', bd.age, 'Jahre', 'inputmode="numeric"')}
+    </div><p class="gfoot">Daraus berechnet Coach deinen täglichen Energiebedarf.${s.weight_trend != null ? ` Gewichtstrend: ${s.weight_trend > 0 ? '+' : ''}${String(s.weight_trend).replace('.', ',')} kg pro Woche.` : ''}</p>
     <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="kraftRow">${IC.dumb}<span class="sl">Krafttraining</span><span class="muted">${s.saved_workouts ? `${s.saved_workouts} gespeichert` : 'Workouts'}</span>${CHEV_R}</button><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
     <h2>Garmin</h2><div class="group">
@@ -618,7 +644,7 @@ async function viewMore(isCurrent = () => true) {
       const times = { ltp: $('#ltp').value, ezp: $('#ezp').value };
       if (Object.values(times).some((v) => v.trim() && !Number.isFinite(parseT(v)))) return toast('Zeiten bitte als 1:50:00 bzw. 4:58 eingeben');
       try {
-        await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp) });
+        await api('/settings', { lthr: $('#lthr').value, max_hr: $('#mhr').value, lt_pace_s: parseT(times.ltp), easy_pace_s: parseT(times.ezp), body: { height_cm: $('#hgt').value, weight_kg: String($('#wgt').value).replace(',', '.'), age: $('#age').value } });
         ['c_more', 'c_today', 'c_week'].forEach((k) => store.del(k));
         toast('Gespeichert');
       } catch (e) { toast(e.message); }
@@ -631,7 +657,7 @@ async function viewMore(isCurrent = () => true) {
       return hours ? (h ? `${h}:${mm}:${ss}` : `${d.slice(0, -2)}:${ss}`) : `${d.slice(0, -2)}:${ss}`;
     };
     [['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
-    ['lthr', 'mhr', 'ltp', 'ezp'].forEach((id) => $('#' + id).addEventListener('change', save));
+    ['lthr', 'mhr', 'ltp', 'ezp', 'hgt', 'wgt', 'age'].forEach((id) => $('#' + id).addEventListener('change', save));
     $('#kraftRow').addEventListener('click', () => go('prep', { kind: 'strength_a' }));
     $('#goalRow').addEventListener('click', () => {
       const el = document.createElement('div');

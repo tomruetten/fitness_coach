@@ -10,6 +10,7 @@ import { loadContext, loadSettings, todayIn } from './context.js';
 import { planningContext, planDay, planWeek, readiness, slotOf, withDefaults } from './engine/planner.js';
 import { raceInfo } from './engine/race.js';
 import { runMigrations } from './migrations.js';
+import { dayEnergy, bodyOf, weightTrend, trendAdvice } from './engine/energy.js';
 import { estimateThreshold } from './engine/threshold.js';
 import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
@@ -234,12 +235,16 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
     const strength_done = loggedDay(ctx.sets, ctx.date);
+    const wlog = (await store.getSetting('weight_log')) || [];
+    const gk = (await store.getSetting('garmin_kcal')) || {};
+    const tomorrowKind = slotOf(rd.settings, addDays(ctx.date, 1)).kind;
+    const energy = { ...dayEnergy({ settings: rd.settings, date: ctx.date, plan, session, activities: ctx.activities, days: ctx.days, allActivities: ctx.activities, strengthSets: strength_done?.sets || 0, nextPlan: { kind: tomorrowKind } }), body: bodyOf(rd.settings), garmin: gk[ctx.date] || null, trend: weightTrend(wlog, ctx.date), advice: trendAdvice(weightTrend(wlog, ctx.date)), last_weight: wlog.length ? wlog[wlog.length - 1] : null };
     const history = vdotHistory(ctx, rd.settings);
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
     const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date }) || (done.length ? evaluateSession({ plan: null, activities: ctx.activities, rd, date: ctx.date, act: done.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) }) : null);
     const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
-    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto || (strength_done && String(plan.kind).startsWith('strength')) ? 'done' : null), auto, strength_done, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto || (strength_done && String(plan.kind).startsWith('strength')) ? 'done' : null), auto, strength_done, energy, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -490,7 +495,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ri = raceInfo(withDefaults(ctx.settings), ctx.date, pc0.fit);
     const goal_status = ri ? { phase: ri.phase, label: ri.label, daysLeft: ri.daysLeft, weeksLeft: ri.weeksLeft, usedPace: ri.usedPace, capped: ri.capped, requiredVdot: ri.requiredVdot, currentVdot: ri.currentVdot } : null;
     const saved_workouts = ((await store.getSetting('saved_workouts')) || []).length;
-    res.json({ ...out, goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
+    res.json({ ...out, body: bodyOf(s), weight_trend: weightTrend((await store.getSetting('weight_log')) || [], ctx.date), goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};
@@ -509,6 +514,17 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       if (b.goal.date === null || b.goal.date === '') g.date = null;
       else if (isDate(b.goal.date)) g.date = b.goal.date;
       next.goal = g;
+    }
+    if (b.body && typeof b.body === 'object') {
+      const cur = bodyOf(saved);
+      const body = { ...cur };
+      for (const [k, lo, hi] of [['height_cm', 120, 230], ['weight_kg', 35, 200], ['age', 14, 90]]) { const v = num(b.body[k], lo, hi); if (v !== undefined) body[k] = v; }
+      next.body = body;
+      if (body.weight_kg !== cur.weight_kg || b.body.log_weight) {
+        const log = ((await store.getSetting('weight_log')) || []).filter((e) => e.date !== todayIn());
+        log.push({ date: todayIn(), kg: body.weight_kg });
+        await store.setSetting('weight_log', log.slice(-120));
+      }
     }
     await store.setSetting('settings', next);
     res.json({ ok: true });
