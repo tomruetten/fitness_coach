@@ -15,6 +15,7 @@ export const rmrMifflin = ({ weight_kg: w, height_cm: h, age: a }) => 10 * w + 6
 const SLEEP_NEAT = 1.1;   // Sitzen, Stehen, Kleinbewegung zusätzlich zum Ruheumsatz
 const TEF = 1.08;         // thermischer Effekt der Nahrung (ca. 8 % des Gesamtumsatzes)
 const KCAL_PER_STEP_PER_KG = 0.000375; // netto Gehen: ca. 0,5 kcal/kg/km bei 0,75 m Schrittlänge
+const DEFICIT = 250;      // kcal unter dem Bedarf bei Ziel „Fett abbauen“
 const EPOC = 1.05;        // Nachbrenneffekt, pauschal
 const STRENGTH_MET = 4.0;
 const SPIN_MET = 8.5;
@@ -64,8 +65,8 @@ export function baseSteps(days, activities, date, fallback = 6500) {
 }
 
 /** Makros nach Tagestyp: Protein 1,8 g/kg, Fett 1,0 g/kg, Rest Kohlenhydrate. */
-export function macros(kcal, kg) {
-  const protein = 1.8 * kg, fat = 1.0 * kg;
+export function macros(kcal, kg, proteinPerKg = 1.8) {
+  const protein = proteinPerKg * kg, fat = 1.0 * kg;
   const carbs = Math.max(0, (kcal - protein * 4 - fat * 9) / 4);
   return { protein_g: r0(protein), fat_g: r0(fat), carbs_g: r0(carbs), carbs_per_kg: Math.round((carbs / kg) * 10) / 10 };
 }
@@ -74,7 +75,7 @@ export function macros(kcal, kg) {
  * Tagesbedarf. activities: Aktivitäten des Tages; plan: Plan des Tages; loggedKg: Tagesvolumen aus dem Kraftlog.
  * Hat der Tag Aktivitäten, zählen sie (Quelle „ist“), sonst die Planung („plan“).
  */
-export function dayEnergy({ settings, date, plan, session = null, activities = [], days = [], allActivities = [], strengthSets = 0, nextPlan = null }) {
+export function dayEnergy({ settings, date, plan, session = null, activities = [], days = [], allActivities = [], strengthSets = 0, nextPlan = null, trend = null }) {
   const body = bodyOf(settings);
   const rmr = rmrTenHaaf(body);
   const mifflin = rmrMifflin(body);
@@ -101,13 +102,23 @@ export function dayEnergy({ settings, date, plan, session = null, activities = [
   const steps = baseSteps(days, allActivities, date);
   const walk = steps * KCAL_PER_STEP_PER_KG * body.weight_kg;
   const calc = (r) => (r * SLEEP_NEAT + walk + exercise) * TEF;
-  const total = calc(rmr), low = calc(mifflin);
-  const m = macros(total, body.weight_kg);
+  const need = calc(rmr), low = calc(mifflin);
+  // Ernährungsziel: „recomp“ (Fett abbauen, Muskeln aufbauen) = moderates Defizit, aber nicht am langen Lauf, am Tag davor
+  // und nicht, wenn das Gewicht ohnehin schon zu schnell fällt
+  const goal = settings?.nutrition === 'halten' ? 'halten' : 'recomp';
+  let deficit = goal === 'recomp' ? DEFICIT : 0, deficitNote = null;
+  if (goal === 'recomp') {
+    if (String(plan?.kind) === 'run_long') { deficit = 0; deficitNote = 'Langer Lauf: heute ohne Defizit, damit die Einheit und die Erholung stimmen.'; }
+    else if (String(nextPlan?.kind) === 'run_long') { deficit = 0; deficitNote = 'Morgen langer Lauf: heute ohne Defizit, die Speicher sollen voll sein.'; }
+    else if (trend != null && trend < -0.5) { deficit = 0; deficitNote = 'Gewicht fällt schneller als 0,5 kg pro Woche: kein Defizit, sonst leidet der Muskelaufbau.'; }
+  }
+  const total = need - deficit;
+  const m = macros(total, body.weight_kg, goal === 'recomp' ? 2.0 : 1.8);
   let tip = null;
   if (String(nextPlan?.kind || '') === 'run_long') tip = 'Morgen langer Lauf: heute lieber reichlich Kohlenhydrate (Reis, Nudeln, Kartoffeln).';
   else if (String(plan?.kind || '').startsWith('run') || plan?.kind === 'spinning') tip = 'Trainingstag: Kohlenhydrate vor und nach der Einheit, Eiweiß über den Tag verteilen.';
   return {
-    kcal: r0(total), low: r0(Math.min(total * 0.92, low)), high: r0(total * 1.08),
+    kcal: r0(total), need: r0(need), deficit: r0(deficit), goal, deficit_note: deficitNote, low: r0(Math.min(need * 0.92, low) - deficit), high: r0(need * 1.08 - deficit),
     rmr: r0(rmr), rmr_mifflin: r0(mifflin), daily: r0(rmr * SLEEP_NEAT * TEF), walk: r0(walk * TEF), steps: r0(steps),
     exercise: r0(exercise * TEF), parts, source, ...m, tip,
     method: 'ten Haaf (Sportler-RMR), Schritte, Lauf nach Distanz, Rad nach Watt oder Puls, Kraft nach MET',

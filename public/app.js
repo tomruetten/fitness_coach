@@ -251,7 +251,8 @@ function energyCard(d) {
   const share = (v) => Math.max(0, Math.round((v / (e.protein_g * 4 + e.carbs_g * 4 + e.fat_g * 9)) * 100));
   const w = e.last_weight ? `${String(e.last_weight.kg).replace('.', ',')} kg` : `${String(e.body.weight_kg).replace('.', ',')} kg`;
   return `<h2>Energiebedarf</h2><div class="card energy">
-    <div class="en-top"><div class="en-big">${n(e.kcal)}<small> kcal</small></div><span class="en-rng">${n(e.low)}–${n(e.high)}</span></div>
+    <div class="en-top"><div class="en-big">${n(e.kcal)}<small> kcal</small></div><span class="en-rng">${e.deficit ? `Bedarf ${n(e.need)} · −${e.deficit}` : `Bedarf ${n(e.need)}`}</span></div>
+    ${e.deficit_note ? `<p class="fine">${esc(e.deficit_note)}</p>` : e.goal === 'recomp' ? '<p class="fine">Ziel: Fett abbauen und Muskeln aufbauen. Etwa 250 kcal unter dem Bedarf, viel Eiweiß.</p>' : ''}
     <div class="en-split"><div><span>Eiweiß</span><b>${e.protein_g}<small> g</small></b></div><div><span>Kohlenhydrate</span><b>${e.carbs_g}<small> g</small></b></div><div><span>Fett</span><b>${e.fat_g}<small> g</small></b></div></div>
     <div class="en-bar" aria-hidden="true"><i style="width:${share(e.protein_g * 4)}%;background:var(--purple)"></i><i style="width:${share(e.carbs_g * 4)}%;background:var(--acc)"></i><i style="width:${share(e.fat_g * 9)}%;background:var(--good)"></i></div>
     <div class="en-lines"><div><span>Grundumsatz und Alltag</span><b>${n(e.daily + e.walk)} kcal</b></div>${e.exercise ? `<div><span>Training (${kind}${e.parts.length ? ': ' + e.parts.map((p) => sport[p.sport] || p.sport).join(', ') : ''})</span><b>${n(e.exercise)} kcal</b></div>` : '<div><span>Training</span><b>Ruhetag</b></div>'}${e.garmin?.total ? `<div><span>Garmin meldet bisher</span><b>${n(e.garmin.total)} kcal</b></div>` : ''}</div>
@@ -604,6 +605,7 @@ async function viewMore(isCurrent = () => true) {
       dumb: ic('purple', '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
       body: ic('teal', '<circle cx="12" cy="5" r="2.2"/><path d="M12 8v6M8 10l4-2 4 2M9 21l3-7 3 7"/>'),
       scale: ic('teal', '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 9a5 5 0 017 0M12 12l2-2"/>'),
+      flame: ic('red', '<path d="M12 3s5 4 5 9a5 5 0 01-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3 0-5 1-8z"/>'),
       flag: ic('orange', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
     };
@@ -623,6 +625,7 @@ async function viewMore(isCurrent = () => true) {
       ${row(IC.body, 'Größe', 'hgt', bd.height_cm, 'cm', 'inputmode="numeric"')}
       ${row(IC.scale, 'Gewicht', 'wgt', String(bd.weight_kg).replace('.', ','), 'kg', 'inputmode="decimal"')}
       ${row(IC.cal, 'Alter', 'age', bd.age, 'Jahre', 'inputmode="numeric"')}
+      <button type="button" class="srow btn" id="nutRow">${IC.flame}<span class="sl">Ernährungsziel</span><span class="muted">${s.nutrition === 'halten' ? 'Gewicht halten' : 'Fett abbauen'}</span>${CHEV_R}</button>
     </div><p class="gfoot">Daraus berechnet Coach deinen täglichen Energiebedarf.${s.weight_trend != null ? ` Gewichtstrend: ${s.weight_trend > 0 ? '+' : ''}${String(s.weight_trend).replace('.', ',')} kg pro Woche.` : ''}</p>
     <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="kraftRow">${IC.dumb}<span class="sl">Krafttraining</span><span class="muted">${s.saved_workouts ? `${s.saved_workouts} gespeichert` : 'Workouts'}</span>${CHEV_R}</button><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
@@ -658,6 +661,19 @@ async function viewMore(isCurrent = () => true) {
     };
     [['ltp', false], ['ezp', false]].forEach(([id, hrs]) => $('#' + id).addEventListener('input', (e) => { e.target.value = fmtDigits(e.target.value, hrs); }));
     ['lthr', 'mhr', 'ltp', 'ezp', 'hgt', 'wgt', 'age'].forEach((id) => $('#' + id).addEventListener('change', save));
+    $('#nutRow').addEventListener('click', () => {
+      const el = document.createElement('div');
+      el.className = 'sheet-wrap';
+      const opt = (id, title, sub) => `<button type="button" class="srow btn" data-nut="${id}"><span class="sl">${title}<br><small class="muted">${sub}</small></span>${s.nutrition === id || (id === 'recomp' && s.nutrition !== 'halten') ? icon.check : ''}</button>`;
+      el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Ernährungsziel"><div class="grabber"></div><h3>Ernährungsziel</h3><div class="group">${opt('recomp', 'Fett abbauen und Muskeln aufbauen', 'ca. 250 kcal unter dem Bedarf, 2 g Eiweiß pro kg. Am langen Lauf und am Tag davor ohne Defizit.')}${opt('halten', 'Gewicht halten', 'Aufnahme = Bedarf, 1,8 g Eiweiß pro kg.')}</div><button type="button" class="link" id="nutCancel">Abbrechen</button></div>`;
+      document.body.append(el);
+      requestAnimationFrame(() => el.classList.add('open'));
+      const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); };
+      $('.sheet-bg', el).onclick = close; $('#nutCancel', el).onclick = close;
+      $$('[data-nut]', el).forEach((b) => b.addEventListener('click', async () => {
+        try { await api('/settings', { nutrition: b.dataset.nut }); ['c_more', 'c_today'].forEach((k) => store.del(k)); close(); render(); } catch (e) { toast(e.message); }
+      }));
+    });
     $('#kraftRow').addEventListener('click', () => go('prep', { kind: 'strength_a' }));
     $('#goalRow').addEventListener('click', () => {
       const el = document.createElement('div');

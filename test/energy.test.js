@@ -51,3 +51,14 @@ test('Alltagsschritte: Median ohne Laufschritte, Rückfall ohne Daten', () => {
   const days = [1, 2, 3].map((i) => ({ date: `2026-11-0${i}`, steps: 8000 }));
   assert.equal(baseSteps(days, [], '2026-11-05'), 8000);
 });
+
+test('Ziel Fett abbauen: 250 kcal Defizit, außer am langen Lauf, am Tag davor und bei zu schnellem Gewichtsverlust', () => {
+  const run = (o = {}) => dayEnergy({ settings: {}, date: '2026-11-05', plan: { kind: 'run_quality', targets: { distance_km: 10 } }, ...o });
+  const a = run();
+  assert.equal(a.goal, 'recomp'); assert.equal(a.deficit, 250); assert.equal(a.kcal, a.need - 250);
+  assert.equal(run({ settings: { nutrition: 'halten' } }).deficit, 0);
+  assert.equal(run({ plan: { kind: 'run_long', targets: { distance_km: 16 } } }).deficit, 0);
+  assert.match(run({ nextPlan: { kind: 'run_long' } }).deficit_note, /langer Lauf/);
+  assert.equal(run({ trend: -0.7 }).deficit, 0);
+  assert.equal(a.protein_g, 158); // 2 g/kg
+});

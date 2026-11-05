@@ -238,7 +238,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const wlog = (await store.getSetting('weight_log')) || [];
     const gk = (await store.getSetting('garmin_kcal')) || {};
     const tomorrowKind = slotOf(rd.settings, addDays(ctx.date, 1)).kind;
-    const energy = { ...dayEnergy({ settings: rd.settings, date: ctx.date, plan, session, activities: ctx.activities, days: ctx.days, allActivities: ctx.activities, strengthSets: strength_done?.sets || 0, nextPlan: { kind: tomorrowKind } }), body: bodyOf(rd.settings), garmin: gk[ctx.date] || null, trend: weightTrend(wlog, ctx.date), advice: trendAdvice(weightTrend(wlog, ctx.date)), last_weight: wlog.length ? wlog[wlog.length - 1] : null };
+    const energy = { ...dayEnergy({ settings: rd.settings, date: ctx.date, plan, session, activities: ctx.activities, days: ctx.days, allActivities: ctx.activities, strengthSets: strength_done?.sets || 0, nextPlan: { kind: tomorrowKind }, trend: weightTrend(wlog, ctx.date) }), body: bodyOf(rd.settings), garmin: gk[ctx.date] || null, trend: weightTrend(wlog, ctx.date), advice: trendAdvice(weightTrend(wlog, ctx.date)), last_weight: wlog.length ? wlog[wlog.length - 1] : null };
     const history = vdotHistory(ctx, rd.settings);
     const tstatus = trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
@@ -495,7 +495,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ri = raceInfo(withDefaults(ctx.settings), ctx.date, pc0.fit);
     const goal_status = ri ? { phase: ri.phase, label: ri.label, daysLeft: ri.daysLeft, weeksLeft: ri.weeksLeft, usedPace: ri.usedPace, capped: ri.capped, requiredVdot: ri.requiredVdot, currentVdot: ri.currentVdot } : null;
     const saved_workouts = ((await store.getSetting('saved_workouts')) || []).length;
-    res.json({ ...out, body: bodyOf(s), weight_trend: weightTrend((await store.getSetting('weight_log')) || [], ctx.date), goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
+    res.json({ ...out, nutrition: s.nutrition === 'halten' ? 'halten' : 'recomp', body: bodyOf(s), weight_trend: weightTrend((await store.getSetting('weight_log')) || [], ctx.date), goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};
@@ -515,6 +515,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       else if (isDate(b.goal.date)) g.date = b.goal.date;
       next.goal = g;
     }
+    if (['halten', 'recomp'].includes(b.nutrition)) next.nutrition = b.nutrition;
     if (b.body && typeof b.body === 'object') {
       const cur = bodyOf(saved);
       const body = { ...cur };
