@@ -166,44 +166,53 @@ export function gapPace(paceS, grade) {
   return paceS * (3.6 / cost);
 }
 
+/**
+ * Kilometer-Splits nach Garmin-Art: Zeit ist die reine Laufzeit (Pausen an Ampeln zählen nicht),
+ * die Kilometergrenzen werden zwischen den Messpunkten interpoliert.
+ */
 export function kmSplits(samples) {
   const pts = samples.filter((s) => s.dist != null);
-  if (!pts.length) return [];
+  if (pts.length < 2) return [];
+  // Laufzeit je Schritt: normale Messabstände zählen voll, Lücken (Auto-Pause) nur so lange, wie die Strecke bei Laufgeschwindigkeit dauert
+  const mv = [0];
+  for (let i = 1; i < pts.length; i++) {
+    const dt = pts[i].t - pts[i - 1].t, dd = Math.max(0, pts[i].dist - pts[i - 1].dist);
+    mv.push(mv[i - 1] + (dt <= 6 ? dt : Math.min(dt, dd / Math.max(0.8, pts[i - 1].speed || 2.5))));
+  }
+  const at = (km) => { // Index des ersten Punkts ab Distanz und interpolierte Laufzeit dort
+    let i = 1; while (i < pts.length && pts[i].dist < km) i++;
+    if (i >= pts.length) return null;
+    const d0 = pts[i - 1].dist, d1 = pts[i].dist, f = d1 > d0 ? (km - d0) / (d1 - d0) : 0;
+    return { i, time: mv[i - 1] + f * (mv[i] - mv[i - 1]) };
+  };
   const out = [];
-  let startIdx = 0;
-  let nextKm = 1000;
-  for (let i = 0; i < pts.length; i++) {
-    if (pts[i].dist >= nextKm) {
-      const seg = pts.slice(startIdx, i + 1);
-      const span = pts[i].t - pts[startIdx].t;
-      const dist = pts[i].dist - pts[startIdx].dist;
-      const hr = seg.reduce((a, s) => a + s.hr * s.dt, 0) / Math.max(1, seg.reduce((a, s) => a + s.dt, 0));
-      const mean = (k) => {
-        const v = seg.map((s) => s[k]).filter((x) => x != null);
-        return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
-      };
-      const pace = (span / dist) * 1000;
-      const ele = elevChange(seg);
-      const gap = ele == null ? null : gapPace(pace, ele / dist);
-      out.push({
-        km: out.length + 1,
-        pace_s: Math.round(pace),
-        gap_s: gap == null ? null : Math.round(gap),
-        ele: ele == null ? null : Math.round(ele),
-        hr: Math.round(hr),
-        cad: mean('cad') != null ? Math.round((mean('cad') + mean('frac')) * 2) : null,
-        gct: mean('gct') != null ? Math.round(mean('gct')) : null,
-      });
-      startIdx = i;
-      nextKm += 1000;
-    }
+  let prev = { i: 0, time: 0 };
+  const start = pts[0].dist || 0;
+  for (let k = 1; ; k++) {
+    const cur = at(start + k * 1000);
+    if (!cur) break;
+    const seg = pts.slice(prev.i, cur.i + 1);
+    const span = cur.time - prev.time;
+    const sec = (x) => seg.reduce((a, s) => a + s[x] * s.dt, 0);
+    const hr = sec('hr') / Math.max(1, seg.reduce((a, s) => a + s.dt, 0));
+    const mean = (key) => { const v = seg.map((s) => s[key]).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const ele = elevChange(seg);
+    out.push({
+      km: k,
+      pace_s: Math.round(span),
+      ele: ele == null ? null : Math.round(ele),
+      hr: Math.round(hr),
+      cad: mean('cad') != null ? Math.round((mean('cad') + mean('frac')) * 2) : null,
+      gct: mean('gct') != null ? Math.round(mean('gct')) : null,
+    });
+    prev = cur;
   }
   return out;
 }
 
 /** Alles, was die Planung aus einem Lauf lernt. v=2 markiert die erweiterte Auswertung. */
 export function runAnalysis(samples) {
-  const best = { v: 3 };
+  const best = { v: 4 };
   for (const [k, min] of [['m5', 5], ['m10', 10], ['m20', 20], ['m30', 30], ['m60', 60]]) best[k] = bestEffort(samples, min * 60);
   best.segments = hardSegments(samples);
   best.drift = decoupling(samples);

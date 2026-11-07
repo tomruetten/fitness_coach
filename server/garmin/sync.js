@@ -115,13 +115,13 @@ export async function runSync(client, store, { settings = {}, maxNew = 6, histor
       if (/Garmin lehnte|401|403/.test(e.message)) throw e;
     }
   }
-  // 2b. Ältere Läufe einmalig mit der erweiterten Auswertung (best.v = 3, inkl. Höhenprofil) nachrechnen: Bestleistungen über
+  // 2b. Ältere Läufe einmalig mit der erweiterten Auswertung (best.v = 4: Splits in reiner Laufzeit) nachrechnen: Bestleistungen über
   //     5–60 min, harte Abschnitte und Entkopplung. Die FIT-Dateien werden dafür erneut geladen.
   let reprocessed = 0;
   const failed = new Set((await store.getSetting('reprocess_failed')) || []);
   let stale = [];
   if (!historyFrom) {
-    stale = (await store.activitiesSince(addDays(today, -130))).filter((a) => a.sport === 'running' && a.distance_m > 1500 && (a.best?.v ?? 0) < 3 && !failed.has(a.id));
+    stale = (await store.activitiesSince(addDays(today, -130))).filter((a) => a.sport === 'running' && a.distance_m > 1500 && (a.best?.v ?? 0) < 4 && !failed.has(a.id));
     for (const a of stale) {
       if (added + reprocessed >= maxNew || Date.now() - started > deadlineMs) break;
       try {

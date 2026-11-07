@@ -132,7 +132,7 @@ function runExtras(p, a, lthr) {
   let splits = '';
   if (sp.length) {
     const mn = Math.min(...sp.map((s) => s.pace_s)), mx = Math.max(...sp.map((s) => s.pace_s));
-    splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>GAP</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.gap_s && Math.abs(s.gap_s - s.pace_s) >= 3 ? pace(s.gap_s) : '–'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
+    splits = `<div class="splits"><div class="sp-h"><span>km</span><span></span><span>Tempo</span><span>Höhe</span><span>Puls</span></div>${sp.map((s) => `<div class="sp"><span>${s.km}</span><i><u style="width:${(35 + (65 * (mx - s.pace_s)) / (mx - mn || 1)).toFixed(0)}%;background:${s.hr ? ZC[zoneOf(s.hr, lthr)] : '#C7C7CC'}"></u></i><span>${pace(s.pace_s)}</span><span class="mute">${s.ele == null ? '–' : (s.ele > 0 ? '+' : s.ele < 0 ? '−' : '') + Math.abs(s.ele) + ' m'}</span><span>${s.hr || '–'}</span></div>`).join('')}</div>`;
   }
   // Intervalle: je Wiederholung Pace und Puls gegenüber dem Soll
   const st = p.structure?.type, segs = (a.segments || []).filter((s) => s.pace_s);
@@ -157,9 +157,21 @@ function sollIst(p, a, lthr) {
   if (t.distance_km) rows.push(row('Distanz', `${dec(t.distance_km, 1)} km`, `${dec(km, 1)} km`, sgn(km - t.distance_km, 1, 'km'), Math.abs(km / t.distance_km - 1) <= 0.1));
   else rows.push(row('Distanz', '', `${dec(km, 1)} km`, '', true));
   rows.push(row('Dauer', t.duration_min ? `${t.duration_min} min` : '', hm(a.duration_s), '', true));
-  rows.push(row('Tempo /km', t.pace_s ? pace(t.pace_s) : '', pace(pc), t.pace_s ? sgn(pc - t.pace_s, 0, 's/km') : '', t.pace_s ? Math.abs(pc - t.pace_s) <= 8 : true));
-  const hrOk = a.avg_hr && (t.hr_to ? a.avg_hr <= t.hr_to + 3 && (!t.hr_from || a.avg_hr >= t.hr_from - 6) : true);
-  rows.push(row('Puls Ø bpm', t.hr_to ? `${t.hr_from ? t.hr_from + '–' : 'bis '}${t.hr_to}` : '', a.avg_hr ? `${Math.round(a.avg_hr)}` : '–', '', hrOk));
+  // Bei Intervallen und Tempoläufen zählt das Arbeitstempo: Ein- und Auslaufen, Trabpausen würden den Gesamtschnitt verfälschen
+  const qs = ['intervals', 'threshold', 'vo2', 'tempo', 'test30', 'racepace'].includes(p.structure?.type) || p.kind === 'run_quality' && p.structure?.type !== 'strides' ? (a.segments || []).filter((s) => s.pace_s && s.dur_s >= 60) : [];
+  if (qs.length && t.pace_s) {
+    const dur = qs.reduce((x, s) => x + s.dur_s, 0), dist = qs.reduce((x, s) => x + s.dur_s / s.pace_s, 0);
+    const wp = dur / dist, wh = qs.reduce((x, s) => x + s.hr * s.dur_s, 0) / dur;
+    rows.push(row('Tempo Arbeit', pace(t.pace_s), pace(wp), sgn(wp - t.pace_s, 0, 's/km'), Math.abs(wp - t.pace_s) <= 8));
+    rows.push(row('Tempo gesamt', '', pace(pc), '', true));
+    const ok = t.hr_to ? wh <= t.hr_to + 3 && (!t.hr_from || wh >= t.hr_from - 6) : true;
+    rows.push(row('Puls Arbeit', t.hr_to ? `${t.hr_from ? t.hr_from + '–' : 'bis '}${t.hr_to}` : '', `${Math.round(wh)}`, '', ok));
+    rows.push(row('Puls gesamt Ø', '', a.avg_hr ? `${Math.round(a.avg_hr)}` : '–', '', true));
+  } else {
+    rows.push(row('Tempo /km', t.pace_s ? pace(t.pace_s) : '', pace(pc), t.pace_s ? sgn(pc - t.pace_s, 0, 's/km') : '', t.pace_s ? Math.abs(pc - t.pace_s) <= 8 : true));
+    const hrOk = a.avg_hr && (t.hr_to ? a.avg_hr <= t.hr_to + 3 && (!t.hr_from || a.avg_hr >= t.hr_from - 6) : true);
+    rows.push(row('Puls Ø bpm', t.hr_to ? `${t.hr_from ? t.hr_from + '–' : 'bis '}${t.hr_to}` : '', a.avg_hr ? `${Math.round(a.avg_hr)}` : '–', '', hrOk));
+  }
   if (a.rpe != null) rows.push(row('Anstrengung', '', `${a.rpe} / 10`, '', true));
   const ex = runExtras(p, a, lthr);
   return `<h2>Soll und Ist</h2><div class="card si"><div class="si-head"><span></span><span>Plan</span><span>Ist</span><span></span></div>${rows.join('')}${ex.zone}${a.ascent_m ? `<p class="fine">${Math.round(a.ascent_m)} m Anstieg${a.cad ? ' · ' + Math.round(a.cad) + ' spm' : ''}</p>` : ''}</div>${ex.reps}${ex.km}`;
@@ -462,7 +474,7 @@ function drawWeek(d, stale) {
   const b0 = d.week[0]?.block;
   const tgt = d.target_km || 0, dn = d.done_km || 0, pct = tgt ? Math.min(1, dn / tgt) : 0;
   const dots = [['Laufen', c.run, KIND_COLOR.running], ['Kraft', c.strength, KIND_COLOR.strength], ['Spinning', c.spin, KIND_COLOR.spinning]].filter(([, v]) => v[1]).map(([l, v, col]) => `<span><i style="background:${col}"></i>${l} ${v[0]}/${v[1]}</span>`).join('');
-  const wk = `<div class="card wkcard">${ringHtml({ p: pct, color: KIND_COLOR.running, size: 92, sw: 9, center: `<b><em data-count="${Math.round(pct * 100)}" data-dec="0">${Math.round(pct * 100)}</em><i>%</i></b>` })}<div class="wk-text"><div class="wk-km"><b><em data-count="${dn}" data-dec="1">${dec(dn, 1)}</em></b><span> von ${dec(tgt, tgt % 1 ? 1 : 0)} km</span></div><div class="wk-sub">Laufumfang diese Woche</div><div class="wk-dots">${dots}</div></div></div>`;
+  const wk = `<div class="card wkcard">${ringHtml({ p: pct, color: KIND_COLOR.running, size: 92, sw: 9, center: `<b class="${pct >= 0.995 ? 'r3' : ''}"><em data-count="${Math.round(pct * 100)}" data-dec="0">${Math.round(pct * 100)}</em><i>%</i></b>` })}<div class="wk-text"><div class="wk-km"><b><em data-count="${dn}" data-dec="1">${dec(dn, 1)}</em></b><span> von ${dec(tgt, tgt % 1 ? 1 : 0)} km</span></div><div class="wk-sub">Laufumfang diese Woche</div><div class="wk-dots">${dots}</div></div></div>`;
   const locked = (p, i) => p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
   const anyMoved = d.week.some((p) => p.moved);
   app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">${dm(dates[0])} – ${dm(dates[6])}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div><button type="button" class="textbtn" id="wedit">${weekEdit ? 'Fertig' : 'Bearbeiten'}</button></div>

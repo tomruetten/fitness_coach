@@ -455,3 +455,5 @@ body::before{display:none}
 .card.energy .fine{margin:0;font-size:13px;line-height:1.4;color:var(--mute)}
 
 .zone .zt span{text-align:center;min-width:0}
+
+.rc b.r3{font-size:25px;letter-spacing:-.04em}.rc b.r3 i{font-size:11px;margin-left:0}

@@ -105,3 +105,20 @@ test('Token-Import mit frischem Zugriffstoken braucht keine Anfrage an Garmin', 
     assert.equal((await t.store.getSetting('garmin_access')).accessToken, 'AT');
   } finally { setHttp(null); t.close(); }
 });
+
+test('Kilometer-Splits: Pausen zählen nicht zur Zeit, Grenzen werden interpoliert', async () => {
+  const { kmSplits } = await import('../server/garmin/fit.js');
+  // 3,0 m/s, jede Sekunde ein Punkt; bei 1500 m 70 s Pause (keine Messpunkte), danach weiter
+  const s = []; let t = 0, d = 0;
+  for (let i = 0; i < 1000; i++) {
+    if (Math.round(d) === 1500 && !s.pause) { s.pause = true; t += 70; }
+    s.push({ t, dt: 1, hr: 150, speed: 3, dist: d, cad: 85, frac: 0, alt: 100 });
+    t += 1; d += 3;
+  }
+  const sp = kmSplits(s);
+  assert.equal(sp.length, 2);
+  // 1000 m bei 3 m/s = 333 s, trotz 70 s Pause im 2. Kilometer
+  assert.ok(Math.abs(sp[0].pace_s - 333) <= 1, String(sp[0].pace_s));
+  assert.ok(Math.abs(sp[1].pace_s - 333) <= 2, String(sp[1].pace_s));
+  assert.equal(sp[0].gap_s, undefined);
+});
