@@ -17,6 +17,11 @@ function badge(e) {
   if (!e.last) return '<span class="dbadge neu">neu</span>';
   return e.delta_kg ? `<span class="dbadge up">+${fmtKg(e.delta_kg)} kg</span>` : '<span class="dbadge">gleich</span>';
 }
+const ARR_UP = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+const ARR_DN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+/** Auf/Ab-Knöpfe zum Umsortieren (data-<name>="i.-1" bzw. "i.1"). */
+const mover = (name, i, n) => `<span class="mvbtns"><button type="button" data-${name}="${i}.-1" aria-label="Nach oben" ${i === 0 ? 'disabled' : ''}>${ARR_UP}</button><button type="button" data-${name}="${i}.1" aria-label="Nach unten" ${i === n - 1 ? 'disabled' : ''}>${ARR_DN}</button></span>`;
+const moveItem = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return false; [arr[i], arr[j]] = [arr[j], arr[i]]; return true; };
 const totalSets = (s) => s.exercises.reduce((a, e) => a + e.sets, 0);
 
 /** Heute-Karte für Krafttage. */
@@ -104,10 +109,11 @@ export async function viewPrep(app, { kind, nav }) {
     const o = by[e.id];
     return `<div class="xrow">${edit ? `<button type="button" class="rm" data-rm="${i}" aria-label="${esc(e.name)} entfernen">−</button>` : icon.grip}
         <div class="xmain"><span class="xname">${esc(e.name)}</span>${edit ? `<div class="efields"><div class="ef"><span>Sätze</span><span class="mini"><button type="button" data-sd="${i}" aria-label="Sätze verringern">−</button><b>${e.sets}</b><button type="button" data-su="${i}" aria-label="Sätze erhöhen">+</button></span></div><label class="ef grow"><span>Wiederholungen</span><input class="reps" data-rp="${i}" value="${esc(e.reps)}" placeholder="z. B. 8 oder 30 s" aria-label="Wiederholungen"></label></div>` : ''}<span class="xsub">${edit ? '' : `${e.sets} Sätze · ${o?.last ? 'letztes Mal ' + lastText(o) : 'noch nie gemacht'}`}</span></div>
-        ${edit ? '' : o ? badge(o) : '<span class="dbadge neu">neu</span>'}</div>`;
+        ${edit ? mover('mv', i, list.length) : o ? badge(o) : '<span class="dbadge neu">neu</span>'}</div>`;
   }).join('') : '<div class="xrow"><span class="muted">Noch keine Übungen. Füge unten die erste hinzu.</span></div>'}</div>
       ${adding ? pickerHtml(cat, new Set(list.map((e) => e.id)), 'Übung zur Vorlage hinzufügen') : `<button type="button" class="addbtn" data-act="add">${icon.plus}Übung hinzufügen</button>`}
       ${saved.length && !adding ? `<button type="button" class="addbtn" data-act="wkload">${icon.plus}Gespeichertes Workout laden</button>` : ''}
+      ${list.length && !adding ? '<button type="button" class="addbtn" data-act="wksave">' + icon.plus + 'Als Workout speichern</button>' : ''}
       ${edit && s.customized && kind !== 'strength_x' ? '<button type="button" class="link" data-act="reset">Auf Standard zurücksetzen</button>' : ''}
       <p class="foot">Die Auswahlliste enthält alle Übungen, die du je angelegt oder trainiert hast. Die Vorgabe „+2,5 kg“ kommt aus deinen letzten Einheiten: Hast du alle Sätze geschafft, schlägt die App etwas mehr Gewicht vor.</p>
       <div class="bar-fixed two"><button type="button" class="cta" data-act="start" ${list.length ? '' : 'disabled'}>Mit dieser Vorlage starten</button><button type="button" class="cta ghost" data-act="blank">Leer starten, Übungen später hinzufügen</button></div>`;
@@ -142,11 +148,17 @@ export async function viewPrep(app, { kind, nav }) {
     $('[data-act=edit]', app).onclick = async () => {
       if (edit) { try { await persist(); await load(kind, true); } catch (e) { toast(e.message); } edit = false; draw(); } else { edit = true; draw(); }
     };
+    $$('[data-mv]', app).forEach((b) => b.addEventListener('click', () => { const [i, d] = b.dataset.mv.split('.').map(Number); if (moveItem(list, i, d)) draw(); }));
     $$('[data-rm]', app).forEach((b) => b.addEventListener('click', () => { list.splice(Number(b.dataset.rm), 1); draw(); }));
     $$('[data-sd]', app).forEach((b) => b.addEventListener('click', () => { const e = list[Number(b.dataset.sd)]; e.sets = Math.max(1, e.sets - 1); draw(); }));
     $$('[data-su]', app).forEach((b) => b.addEventListener('click', () => { const e = list[Number(b.dataset.su)]; e.sets = Math.min(10, e.sets + 1); draw(); }));
     $$('[data-rp]', app).forEach((i) => i.addEventListener('change', () => { list[Number(i.dataset.rp)].reps = i.value.trim() || '8'; }));
     $('[data-act=wkload]', app)?.addEventListener('click', () => openWorkoutList());
+    $('[data-act=wksave]', app)?.addEventListener('click', async () => {
+      if (edit) { try { await persist(); } catch (e) { return toast(e.message); } }
+      const ok = await askSaveWorkout(list.map((e) => ({ id: e.id, name: e.name, sets: { length: e.sets }, reps_spec: e.reps })), saved);
+      if (ok) { saved = (await api('/strength/workouts').catch(() => ({ workouts: saved }))).workouts || saved; draw(); }
+    });
     $('[data-act=add]', app)?.addEventListener('click', () => { adding = true; draw(); });
     if (adding) pickerBind(app, cat, new Set(list.map((e) => e.id)), async (c) => {
       list.push({ id: c.id, name: c.name, sets: c.sets, reps: c.reps }); adding = false;
@@ -205,7 +217,7 @@ export async function viewLog(app, { kind, blank, edit, nav }) {
   }).join('')}
       <div class="setbtns"><button type="button" class="addset" data-as="${ei}">${icon.plus}Satz hinzufügen</button>${e.sets.length > 1 ? `<button type="button" class="delset" data-ds="${ei}" aria-label="Letzten Satz entfernen">−</button>` : ''}</div>
       <textarea class="memo" data-note="${ei}" rows="2" placeholder="Notiz, z. B. Sitzeinstellung am Gerät" aria-label="Notiz zu ${esc(e.name)}">${esc(e.note)}</textarea>
-      ${picking?.mode === 'replace' && picking.ei === ei ? pickerHtml(cat, ids(), 'Ersetzen durch') : `<div class="exacts"><button type="button" data-rep="${ei}">Ersetzen</button><button type="button" class="danger" data-del="${ei}">${armed === ei ? 'Wirklich entfernen?' : 'Entfernen'}</button></div>`}</div>` : ''}</section>`;
+      ${picking?.mode === 'replace' && picking.ei === ei ? pickerHtml(cat, ids(), 'Ersetzen durch') : `<div class="exacts"><button type="button" aria-label="Übung nach oben" data-up="${ei}.-1" ${ei === 0 ? 'disabled' : ''}>${ARR_UP}</button><button type="button" aria-label="Übung nach unten" data-up="${ei}.1" ${ei === st.data.length - 1 ? 'disabled' : ''}>${ARR_DN}</button><button type="button" data-rep="${ei}">Ersetzen</button><button type="button" class="danger" data-del="${ei}">${armed === ei ? 'Wirklich entfernen?' : 'Entfernen'}</button></div>`}</div>` : ''}</section>`;
   }).join('')}
     ${picking?.mode === 'add' ? pickerHtml(cat, ids(), 'Übung hinzufügen') : `<button type="button" class="addbtn" data-act="add">${icon.plus}Übung hinzufügen</button>`}
     <div class="vol"><span>Volumen bisher</span><b>${Math.round(t.vol).toLocaleString('de-DE')}<small> kg</small></b></div>
@@ -232,6 +244,7 @@ export async function viewLog(app, { kind, blank, edit, nav }) {
     $$('[data-as]', app).forEach((b) => b.addEventListener('click', () => { const e = st.data[Number(b.dataset.as)]; const l = e.sets[e.sets.length - 1] || [0, firstNum(e.reps) || 8]; e.sets.push([l[0], l[1], false]); upd(); }));
     $$('[data-ds]', app).forEach((b) => b.addEventListener('click', () => { const e = st.data[Number(b.dataset.ds)]; if (e.sets.length > 1) e.sets.pop(); upd(); }));
     $$('[data-note]', app).forEach((n) => n.addEventListener('input', () => { st.data[Number(n.dataset.note)].note = n.value; save(); }));
+    $$('[data-up]', app).forEach((b) => b.addEventListener('click', () => { const [i, d] = b.dataset.up.split('.').map(Number); if (moveItem(st.data, i, d)) { st.open = i + d; armed = -1; upd(); } }));
     $$('[data-rep]', app).forEach((b) => b.addEventListener('click', () => { picking = { mode: 'replace', ei: Number(b.dataset.rep) }; armed = -1; upd(); }));
     $$('[data-del]', app).forEach((b) => b.addEventListener('click', () => {
       const ei = Number(b.dataset.del), e = st.data[ei];
@@ -265,16 +278,17 @@ export async function viewLog(app, { kind, blank, edit, nav }) {
 }
 
 /** Nach einem freien Training: Workout als Vorlage speichern? Wartet, bis der Dialog geschlossen ist. */
-function askSaveWorkout(exercises) {
+function askSaveWorkout(exercises, existing = []) {
   return new Promise((resolve) => {
     const el = document.createElement('div');
     el.className = 'sheet-wrap';
     el.innerHTML = `<div class="sheet-bg"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Workout speichern"><div class="grabber"></div><h3>Workout speichern?</h3><p class="muted">${exercises.length} Übungen. Gespeicherte Workouts kannst du später in Kraft A, Kraft B oder Eigene laden.</p>
-      <input class="txt" id="wkName" placeholder="Name, z. B. Oberkörper schwer" autocomplete="off" maxlength="40">
+      <input class="txt" id="wkName" placeholder="Name, z. B. Oberkörper schwer" autocomplete="off" maxlength="40"${existing.length ? ' list="wkNames"' : ''}>${existing.length ? `<datalist id="wkNames">${existing.map((w) => `<option value="${esc(w.name)}">`).join('')}</datalist><p class="muted">Gleicher Name überschreibt das gespeicherte Workout (inkl. Reihenfolge).</p>` : ''}
       <button type="button" class="cta" id="wkSave">Speichern</button><button type="button" class="link" id="wkSkip">Nicht speichern</button></div>`;
     document.body.append(el);
     requestAnimationFrame(() => el.classList.add('open'));
-    const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); resolve(); };
+    let done = false;
+    const close = () => { el.classList.remove('open'); setTimeout(() => el.remove(), 250); resolve(done); };
     $('#wkSkip', el).onclick = close;
     $('#wkSave', el).onclick = async () => {
       const name = $('#wkName', el).value.trim();
@@ -282,7 +296,7 @@ function askSaveWorkout(exercises) {
       const b = $('#wkSave', el); b.disabled = true;
       try {
         await api('/strength/workouts', { name, exercises: exercises.map((e) => ({ id: e.id, name: e.name, sets: e.sets.length, reps: e.reps_spec || String(e.sets[0]?.reps ?? 8) })) });
-        toast('Workout gespeichert'); close();
+        toast('Workout gespeichert'); done = true; close();
       } catch (e) { b.disabled = false; toast(e.message); }
     };
   });

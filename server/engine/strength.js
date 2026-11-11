@@ -34,7 +34,7 @@ export function lastSession(sets, exId, beforeDate) {
  * je Übung die letzte Einheit und vorbefüllte Sätze.
  */
 /** Heute abgehakte Sätze, gruppiert nach Übung (Reihenfolge wie gespeichert). */
-export function loggedDay(sets, date) {
+export function loggedDay(sets, date, order = null) {
   const by = new Map();
   for (const s of sets.filter((x) => x.date === date && x.done !== false)) {
     const e = by.get(s.exercise_id) || { id: s.exercise_id, name: s.exercise_name, kind: s.kind || null, sets: [] };
@@ -42,6 +42,7 @@ export function loggedDay(sets, date) {
     by.set(s.exercise_id, e);
   }
   const exercises = [...by.values()].map((e) => ({ ...e, sets: e.sets.sort((a, b) => a.no - b.no).map(({ no, ...x }) => x) }));
+  if (Array.isArray(order) && order.length) { const rank = (id) => { const i = order.indexOf(id); return i < 0 ? 999 : i; }; exercises.sort((a, b) => rank(a.id) - rank(b.id)); } // stabil: Unbekannte behalten ihre Reihenfolge
   if (!exercises.length) return null;
   const all = exercises.flatMap((e) => e.sets.map((x) => ({ ...x, timed: false })));
   const volume = Math.round(exercises.reduce((a, e) => a + (isTimed(e.name) ? 0 : e.sets.reduce((v, x) => v + x.kg * x.reps, 0)), 0));

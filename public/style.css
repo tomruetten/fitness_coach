@@ -457,3 +457,5 @@ body::before{display:none}
 .zone .zt span{text-align:center;min-width:0}
 
 .rc b.r3{font-size:25px;letter-spacing:-.04em}.rc b.r3 i{font-size:11px;margin-left:0}
+
+.mvbtns{display:flex;flex-direction:column;gap:4px;flex:none;align-self:center}.mvbtns button,.exacts button[data-up]{flex:0 0 44px;display:inline-flex;align-items:center;justify-content:center;gap:4px}.mvbtns button{width:34px;height:28px;border:0;border-radius:8px;background:var(--fill,rgba(120,120,128,.12));color:var(--purple);padding:0}.mvbtns button:disabled,.exacts button:disabled{opacity:.3}

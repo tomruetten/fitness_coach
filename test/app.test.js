@@ -186,6 +186,13 @@ test('Kraft: abgeschlossenes Training erscheint auf Heute, Bearbeiten, Workouts 
   assert.equal(ed.exercises.length, 2); assert.equal(ed.exercises[0].prefill[1].kg, 8);
   await t.call('/api/strength/sets', { body: { ...body, edit: true, exercises: [body.exercises[0]] } });
   assert.equal((await (await t.call('/api/today')).json()).strength_done.exercises.length, 1);
+  // Reihenfolge der Übungen bleibt erhalten (auch umgekehrt)
+  for (const ord of [[1, 0], [0, 1]]) {
+    const ex = [body.exercises[0], body.exercises[1]];
+    await t.call('/api/strength/sets', { body: { ...body, edit: true, exercises: ord.map((i) => ex[i]) } });
+    const names = (await (await t.call('/api/today')).json()).strength_done.exercises.map((e) => e.name);
+    assert.deepEqual(names, ord.map((i) => ex[i].name));
+  }
   // Gespeicherte Workouts
   assert.equal((await t.call('/api/strength/workouts', { body: { name: '', exercises: [] } })).status, 400);
   await t.call('/api/strength/workouts', { body: { name: 'Arme', exercises: [{ id: 'x_curl', name: 'Curls', sets: 2, reps: '10' }] } });

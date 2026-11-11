@@ -234,7 +234,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const { settings, ...rdOut } = rd;
     let session = null;
     if (plan.kind === 'strength_a' || plan.kind === 'strength_b') session = sessionFor({ plan, kind: plan.kind, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {} });
-    const strength_done = loggedDay(ctx.sets, ctx.date);
+    const strength_done = loggedDay(ctx.sets, ctx.date, ((await store.getSetting('strength_order')) || {})[ctx.date]);
     const wlog = (await store.getSetting('weight_log')) || [];
     const gk = (await store.getSetting('garmin_kcal')) || {};
     const tomorrowKind = slotOf(rd.settings, addDays(ctx.date, 1)).kind;
@@ -392,7 +392,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const kind = KINDS.includes(req.query.kind) ? req.query.kind : 'strength_a';
     const ctx = await loadContext(store);
     const plan = planWeek(ctx).find((p) => p.kind === kind) || null;
-    const logged = req.query.edit === '1' ? loggedDay(ctx.sets, ctx.date) : null;
+    const logged = req.query.edit === '1' ? loggedDay(ctx.sets, ctx.date, ((await store.getSetting('strength_order')) || {})[ctx.date]) : null;
     res.json(sessionFor({ plan, kind, logged, template: await store.getSetting('strength_template'), sets: ctx.sets, date: ctx.date, notes: (await store.getSetting('exercise_notes')) || {}, blank: req.query.blank === '1' }));
   }));
 
@@ -469,6 +469,12 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     }
     if (req.body?.edit === true) await store.deleteSets(date);
     await store.replaceSets(date, rows);
+    { // Reihenfolge der Übungen merken (die Tabelle sortiert nur nach Satznummer)
+      const ord = (await store.getSetting('strength_order')) || {};
+      ord[date] = [...new Set(rows.map((r) => r.exercise_id))];
+      const keep = Object.keys(ord).sort().slice(-60);
+      await store.setSetting('strength_order', Object.fromEntries(keep.map((k) => [k, ord[k]])));
+    }
     const used = (Array.isArray(req.body?.exercises) ? req.body.exercises : []).filter((e) => Array.isArray(e.sets) && e.sets.length).map((e) => ({ id: e.id, name: e.name, sets: e.sets.length, reps: e.reps_spec || (e.sets[0]?.reps ?? 8) }));
     await registerCatalog(used);
     if (req.body?.notes && typeof req.body.notes === 'object') {
