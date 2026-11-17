@@ -1,6 +1,7 @@
 // Wochenrückblick und Konsistenz: reine Funktionen auf Aktivitäten, Tageswerten und Planung.
 import { addDays, mondayOf, diffDays } from './dates.js';
 import { fitnessState } from './fitness.js';
+import { isSick, sickDaysIn } from './illness.js';
 
 const isRun = (a) => a.sport === 'running' && a.distance_m > 1500;
 const sumKm = (xs) => xs.filter(isRun).reduce((s, a) => s + a.distance_m, 0) / 1000;
@@ -30,7 +31,9 @@ export function weekReview({ activities, days, settings, monday, planned }) {
   const hrv = mean(wd.map((d) => d.hrv_avg));
   const hrvBase = mean(days.filter((d) => d.date >= addDays(monday, -60) && d.date < monday).map((d) => d.hrv_avg));
   const longest = runs.reduce((m, r) => Math.max(m, r.distance_m), 0) / 1000;
+  const sickDays = sickDaysIn(settings, monday, to, to);
   const lines = [];
+  if (sickDays) lines.push(`${sickDays} ${sickDays === 1 ? 'Tag' : 'Tage'} krank: nicht gewertet, die Woche zählt nicht gegen dich.`);
   if (plannedKm > 0 && slots.length) lines.push(`${done} von ${slots.length} Einheiten umgesetzt, ${dec(km)} von ${dec(plannedKm)} km gelaufen.`);
   else lines.push(`${dec(km)} km in ${runs.length} ${runs.length === 1 ? 'Lauf' : 'Läufen'}.`);
   if (avg4 && km > 0) { const d = Math.round(((km - avg4) / avg4) * 100); lines.push(d > 10 ? `${d} % mehr Umfang als dein Vier-Wochen-Schnitt. Eine Entlastung ist bald sinnvoll.` : d < -25 ? `${-d} % weniger Umfang als dein Schnitt (Entlastung oder Pause).` : 'Umfang im Rahmen deines Vier-Wochen-Schnitts.'); }
@@ -38,7 +41,7 @@ export function weekReview({ activities, days, settings, monday, planned }) {
   if (dVdot != null && Math.abs(dVdot) >= 0.2) lines.push(dVdot > 0 ? `Leistungsstand +${dec(dVdot)} VDOT.` : `Leistungsstand ${dec(dVdot)} VDOT.`);
   if (hrv != null && hrvBase != null && hrv < hrvBase * 0.9) lines.push(`HRV im Schnitt ${Math.round(hrv)} ms, unter deinem Normalwert von ${Math.round(hrvBase)} ms.`);
   if (sleep != null && sleep < 6.8) lines.push(`Schlaf im Schnitt ${dec(sleep)} h. Mehr Schlaf macht das Training wirksamer.`);
-  return { monday, to, km: r1(km), planned_km: r1(plannedKm), runs: runs.length, sessions_done: done, sessions_planned: slots.length, avg4_km: avg4 == null ? null : r1(avg4), easy_pct: easy, vdot_delta: dVdot, longest_km: r1(longest), sleep_h: sleep == null ? null : r1(sleep), hrv: hrv == null ? null : Math.round(hrv), lines };
+  return { monday, to, km: r1(km), planned_km: r1(plannedKm), runs: runs.length, sessions_done: done, sessions_planned: slots.length, sick_days: sickDays, avg4_km: avg4 == null ? null : r1(avg4), easy_pct: easy, vdot_delta: dVdot, longest_km: r1(longest), sleep_h: sleep == null ? null : r1(sleep), hrv: hrv == null ? null : Math.round(hrv), lines };
 }
 
 /** Konsistenz: die letzten `weeks` Wochen als Raster (Mo–So) und die aktuelle Serie. */
@@ -53,14 +56,14 @@ export function consistency({ activities, settings, today, weeks = 12 }) {
       const acts = activities.filter((a) => a.local_date === date);
       const set = [...new Set(acts.map(grp))];
       if (status[date] === 'done' && !set.length) set.push('done');
-      return { date, s: set, skip: status[date] === 'skipped', future: date > today };
+      return { date, s: set, skip: status[date] === 'skipped' && !isSick(settings, date, today), sick: isSick(settings, date, today), future: date > today };
     });
-    rows.push({ monday: mon, cells, n: cells.reduce((s, c) => s + (c.s.length ? 1 : 0), 0) });
+    rows.push({ monday: mon, cells, n: cells.reduce((s, c) => s + (c.s.length ? 1 : 0), 0), sick: cells.filter((c) => c.sick).length });
   }
   // Serie: aufeinanderfolgende Wochen (rückwärts ab der letzten vollen Woche) mit mindestens 3 aktiven Tagen
   let streak = 0;
   const complete = rows.filter((r) => addDays(r.monday, 6) < today);
-  for (let i = complete.length - 1; i >= 0; i--) { if (complete[i].n >= 3) streak++; else break; }
+  for (let i = complete.length - 1; i >= 0; i--) { if (complete[i].sick >= 3) continue; if (complete[i].n >= 3) streak++; else break; } // Krankheitswochen unterbrechen die Serie nicht
   const cur = rows[rows.length - 1];
   if (cur.n >= 3 && streak > 0) streak++;
   else if (cur.n >= 3 && streak === 0 && complete.length === 0) streak = 1;

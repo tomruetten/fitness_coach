@@ -59,16 +59,18 @@ export function sessionFor({ plan, kind, template, sets, date, notes = {}, blank
   }
   if (blank) return { date, kind: 'strength_x', title: 'Freies Training', summary: '', duration_min: 0, exercises: [], customized: false, blank: true };
   const planned = plan?.exercises || [];
+  const ws = plan?.weight_scale && plan.weight_scale < 1 ? plan.weight_scale : 1; // Wiedereinstieg nach Krankheit: weniger Gewicht
+  const sc = (v) => (v == null || ws === 1 ? v : Math.round(v * ws * 2) / 2);
   const base = template?.[kind]?.length ? template[kind] : planned.map((e) => ({ id: e.id, name: e.name, sets: e.sets, reps: e.reps }));
   const exercises = base.map((b) => {
     const p = planned.find((e) => e.id === b.id);
     const last = lastSession(sets, b.id, date);
     const lastTop = last ? Math.max(...last.sets.map((s) => s.kg)) : null;
-    const suggest = p?.weight_kg ?? lastTop;
+    const suggest = sc(p?.weight_kg ?? lastTop);
     const timed = isTimed(b.reps);
     const n = Math.max(1, Math.min(10, Number(b.sets) || 3));
     const prefill = Array.from({ length: n }, (_, i) => ({
-      kg: last?.sets[i]?.kg ?? lastTop ?? p?.weight_kg ?? 0,
+      kg: sc(last?.sets[i]?.kg ?? lastTop ?? p?.weight_kg ?? 0),
       reps: firstInt(b.reps) ?? last?.sets[i]?.reps ?? 8,
     }));
     return {

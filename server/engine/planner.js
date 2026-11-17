@@ -9,6 +9,7 @@ import { buildQuality, runEasy, runLong, strengthSession } from './sessions.js';
 import { fitnessState } from './fitness.js';
 import { planLong, planQuality, weeklyPlan } from './progression.js';
 import { raceInfo, raceQuality, racePlan } from './race.js';
+import { illnessState, illnessHold, sickWeeks, capWeek, logOf, SEVERITY_LABEL, NECK_RULE } from './illness.js';
 
 export const BLOCK_LABEL = { basis: 'Basis', aufbau: 'Aufbau', spezifisch: 'Rennvorbereitung', taper: 'Tapering', rennwoche: 'Rennwoche' };
 
@@ -58,6 +59,8 @@ export function missedRuns(settings, activities, date) {
     if (d < firstAct) break;
     const kind = slotOf(settings, d).kind;
     if (kind !== 'run_quality' && kind !== 'run_long') continue;
+    const ist = illnessState(settings, d, date);
+    if (ist.sick || (ist.recovery && ist.recovery.noQuality)) continue; // Krankheit und Wiedereinstieg zählen nicht als verpasst
     const manual = settings._status?.[d];
     if (manual === 'done') continue;
     if (manual === 'skipped') { missed.push(d); continue; }
@@ -111,7 +114,10 @@ export function readiness(ctx) {
   const settings = withDefaults(ctx.settings);
   const date = ctx.date;
   const rec = recoveryState(ctx.days || [], date);
-  const ac = loadModel(ctx.activities || [], date);
+  const ac0 = loadModel(ctx.activities || [], date);
+  // Während Krankheit und danach ist das Belastungsverhältnis nicht aussagekräftig (Last fällt auf null, dann steigt sie rasant)
+  const hold = illnessHold(settings, date, ctx.today || date);
+  const ac = hold ? { ...ac0, ratio: null } : ac0;
   const signals = [...rec.signals];
   if (ac.ratio != null && ac.ratio > RULES.acwrHigh) {
     signals.push({ id: 'R-LOAD', text: `Belastung der letzten 7 Tage ist ${ac.ratio.toFixed(2)}-mal so hoch wie dein Schnitt` });
@@ -133,7 +139,11 @@ export function planningContext(ctx, settings, rd) {
   const today = ctx.today || ctx.date;
   const asOf = ctx.date > today ? today : ctx.date;
   const fit = fitnessState({ activities: ctx.activities || [], days: ctx.days || [], settings, asOf });
-  let wp = weeklyPlan(ctx.activities || [], ctx.date, { level: rd?.level || 'good', acwr: rd?.acwr ?? null });
+  const todayD = ctx.today || ctx.date;
+  const skip = sickWeeks(settings, mondayOf(ctx.date), todayD);
+  let wp = weeklyPlan(ctx.activities || [], ctx.date, { level: rd?.level || 'good', acwr: rd?.acwr ?? null, skip });
+  const ist = illnessState(settings, ctx.date > todayD ? todayD : ctx.date, todayD);
+  if (ist.recovery) wp = capWeek(wp, ist, Math.max(0, ...(wp.w || []).slice(1, 5).filter(Number.isFinite)));
   let block = { name: wp.deload || wp.c === 1 ? 'basis' : 'aufbau', week: wp.c, deload: wp.deload };
   // Rennmodus (nur mit Zielzeit und Datum): Tapering, keine Entlastung kurz vor dem Rennen, Phasenname
   const race = raceInfo(settings, ctx.date, fit);
@@ -171,7 +181,7 @@ export function planDay(ctx, opts = {}) {
   const pc = opts.pc || planningContext(ctx, settings, rd);
   const { fit, wp, block } = pc;
   const raceDay = raceInfo(settings, date, fit);
-  const raceNote = raceDay ? { date: raceDay.date, daysLeft: raceDay.daysLeft, weeksLeft: raceDay.weeksLeft, phase: raceDay.phase, label: raceDay.label, goalPace: raceDay.goalPace, usedPace: raceDay.usedPace, capped: raceDay.capped } : null;
+  const raceNote = raceDay ? { illness: raceDay.illness, date: raceDay.date, daysLeft: raceDay.daysLeft, weeksLeft: raceDay.weeksLeft, phase: raceDay.phase, label: raceDay.label, goalPace: raceDay.goalPace, usedPace: raceDay.usedPace, capped: raceDay.capped } : null;
   const base = { race: raceNote, date, weekday: WEEKDAYS[wd], kind: slot.kind, label: slot.label, fixed: !!slot.fixed, block: { name: block.name, label: BLOCK_LABEL[block.name], week: block.week, deload: block.deload }, provisional: !!opts.provisional, moved: !!settings._ov?.[date] && settings._ov[date] !== (settings.week[wd]?.kind || 'rest') };
 
   const loadHigh = rd.signals?.some((s) => s.id === 'R-LOAD');
@@ -180,6 +190,29 @@ export function planDay(ctx, opts = {}) {
   const recentPain = (ctx.pain || []).some((x) => diffDays(date, x.date) >= 0 && diffDays(date, x.date) <= 7 && x.level >= RULES.painThreshold);
   const fitWhy = () => fit.source === 'läufe' && fit.anchor ? [{ rule: 'R-FIT', text: `Leistungsstand VDOT ${fit.vdot.toString().replace('.', ',')} (Beleg ${fit.anchor.date.slice(8, 10)}.${fit.anchor.date.slice(5, 7)}.: ${Math.round(fit.anchor.dur_s / 60)} min, Ø ${fmtPace(fit.anchor.pace_s)} /km, Puls ${fit.anchor.hr}${fit.trend != null ? `, Puls-Tempo-Trend ${fit.trend > 0 ? '+' : ''}${fit.trend.toString().replace('.', ',')} %` : ''}): Schwelle ${fmtPace(fit.paces.threshold)}, Intervall ${fmtPace(fit.paces.interval)}, locker ${fmtPace(fit.paces.easy)}` }] : [{ rule: 'R-FIT', text: `Noch kein harter Lauf als Beleg: Tempi aus deiner Schwellenpace (${fmtPace(settings.lt_pace_s)}), Leistungsstand wird mit den nächsten harten Läufen genauer` }];
   if (loadHigh) why.push({ rule: 'R-LOAD', text: rd.signals.find((s) => s.id === 'R-LOAD').text + ': diese Woche entlastet' });
+
+  // Krank-Modus: kranke Tage sind Pausentage, im Wiedereinstieg wird Umfang und Intensität in Stufen aufgebaut
+  const todayD = ctx.today || ctx.date;
+  const ist = illnessState(settings, date, todayD);
+  const rec = ist.recovery;
+  base.illness = ist.sick ? { state: 'sick', severity: ist.severity, day: ist.day, open: ist.open } : rec ? { state: 'recovery', since: rec.since, ramp: rec.ramp, factor: Math.round(rec.factor * 100), easy: rec.easy, quality_blocked: rec.noQuality, doctor: !!rec.doctor, pause: rec.pause, severity: rec.severity } : null;
+  if (ist.sick) {
+    const light = ist.severity === 'leicht';
+    return { ...base, kind: 'rest', label: 'Krank', sick: true, sick_slot: slot.kind, title: 'Krank: Erholung', summary: light ? 'Nur Nase oder Hals? Dann ist lockere Bewegung optional (Spaziergang oder sehr lockeres Joggen im Z1), sonst Pause. Schlaf und Flüssigkeit zählen jetzt mehr als Training.' : 'Heute kein Sport. Schlaf, Flüssigkeit und Ruhe sind jetzt das Training.', steps: [], targets: {}, why: [{ rule: 'R-SICK', text: `Krank gemeldet (${SEVERITY_LABEL[ist.severity].toLowerCase()}, Tag ${ist.day}): die Einheit zählt nicht als verpasst, danach steigt die Belastung in Stufen wieder an` }, { rule: 'R-NECK', text: NECK_RULE }] };
+  }
+  if (date > todayD && illnessState(settings, todayD, todayD).sick) why.push({ rule: 'R-SICK', text: 'Vorläufig: hängt davon ab, wie schnell du gesund wirst. Nach der Genesung beginnt der Wiedereinstieg in Stufen' });
+  const retWhy = rec ? { rule: 'R-RETURN', text: `Wiedereinstieg Tag ${rec.since} von ${rec.ramp} nach ${rec.pause} Tagen Pause (${SEVERITY_LABEL[rec.severity].toLowerCase()}): Umfang ${Math.round(rec.factor * 100)} %${rec.easy ? ', nur lockere Läufe' : rec.noQuality ? ', noch keine Qualität' : ''}` } : null;
+  if (retWhy && slot.kind !== 'rest') why.push(retWhy);
+  const retMin = rec ? Math.round(Math.min(45, Math.max(20, 20 + 5 * (rec.since - 1)))) : 0;
+  if (rec && !opts.provisional && slot.kind !== 'rest') {
+    const unfitToday = !!settings._unfit?.[date];
+    const worse = logOf(settings)[date] === 'schlechter';
+    const rhr = rd.signals?.some((x) => x.id === 'R-RHR');
+    if (unfitToday || worse || rhr) {
+      const why2 = [{ rule: 'R-RELAPSE', text: worse ? 'Du hast dich heute als „schlechter“ gemeldet' : unfitToday ? 'Du hast dich heute als nicht fit gemeldet' : rd.signals.find((x) => x.id === 'R-RHR').text }, { rule: 'R-RELAPSE', text: 'Rückfall-Schutz im Wiedereinstieg: lieber einen Tag Pause als mit Krankheit im Körper trainieren. Fühlst du dich wieder krank, melde es im Profil.' }];
+      return { ...base, kind: 'rest', label: 'Pause', relapse: true, sick_slot: slot.kind, title: 'Wiedereinstieg: heute Pause', summary: 'Der Körper ist noch nicht so weit. Heute Pause, morgen entscheidest du neu.', steps: [], targets: {}, why: why2 };
+    }
+  }
 
   // Renntag und Tag davor
   if (raceDay && raceDay.daysLeft === 0) {
@@ -197,9 +230,15 @@ export function planDay(ctx, opts = {}) {
   if (slot.kind === 'spinning') {
     const tips = [];
     if (!opts.provisional && level === 'low') tips.push('Erholung niedrig: Intervalle bei Bedarf eine Stufe leichter fahren.');
+    if (rec && rec.noQuality) return { ...base, title: 'Spinning: locker', summary: 'Wiedereinstieg nach Krankheit: nur locker fahren (Zone 1 bis 2, Gespräch möglich) oder den Kurs auslassen. Keine Intervalle.', steps: [{ label: 'Lockeres Fahren', detail: '30 bis 45 min im Z1 bis Z2, Puls niedrig halten' }], why, adjusted: true, targets: { duration_min: 40 } };
+    if (rec) tips.push('Wiedereinstieg: Intervalle eine Stufe leichter fahren und früher aufhören, wenn es sich schwer anfühlt.');
     return { ...base, title: 'Spinning: Intervalle', summary: 'Fester Kurs, 1 h Intervalltraining. Wird nicht von der App geplant, aber als harte Einheit in die Belastung eingerechnet.', steps: tips.map((t) => ({ label: 'Hinweis', detail: t })), why, targets: { duration_min: 60 } };
   }
 
+  if (slot.kind === 'run_quality' && rec && rec.noQuality) {
+    const s = runEasy(retMin, fit, settings, 'Lockerer Lauf (Wiedereinstieg)');
+    return { ...base, ...s, why: [...why], adjusted: true };
+  }
   if (slot.kind === 'run_quality') {
     const missed = opts.provisional ? [] : missedRuns(settings, acts, date);
     let easyInstead = false;
@@ -220,11 +259,15 @@ export function planDay(ctx, opts = {}) {
       const txt = { rennwoche: 'Rennwoche: nur Aktivierung, kurze Steigerungen, die Beine sollen frisch bleiben', taper: 'Tapering: kurze Renntempo-Einheit, Intensität bleibt, Umfang sinkt', spezifisch: `Rennvorbereitung (noch ${raceDay.weeksLeft} Wochen): Renntempo ${Math.floor(raceDay.usedPace / 60)}:${String(raceDay.usedPace % 60).padStart(2, '0')} min/km${raceDay.capped ? `, vorerst begrenzt, denn die Zielpace braucht VDOT ${raceDay.requiredVdot} (aktuell ${raceDay.currentVdot})` : ''}` }[raceDay.phase];
       return { ...base, ...q, why: [...fitWhy(), { rule: 'R-RACE', text: txt }, ...why], adjusted: level === 'medium' && !opts.provisional, kindQ: rq.type };
     }
-    const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: !!opts.provisional, volScale: missed.length >= 2 ? 0.85 : 1 });
+    const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: !!opts.provisional, volScale: (missed.length >= 2 ? 0.85 : 1) * (rec ? rec.factor : 1) });
     const q = buildQuality(pq.structure, fit, settings);
     return { ...base, ...q, why: [...fitWhy(), ...(wp.deload ? [{ rule: 'R-DELOAD', text: wp.reason }] : []), ...pq.why, ...why], adjusted: (level === 'medium' && !opts.provisional) || missed.length >= 2, kindQ: pq.kind };
   }
 
+  if (slot.kind === 'run_long' && rec && rec.easy) {
+    const s = runEasy(retMin, fit, settings, 'Lockerer Lauf statt langem Lauf (Wiedereinstieg)');
+    return { ...base, ...s, why: [...why], adjusted: true };
+  }
   if (slot.kind === 'run_long') {
     const pq = planQuality({ activities: acts, date, fit, rd, wp, pain: recentPain, isLongDay, provisional: true });
     const qKm = buildQuality(pq.structure, fit, settings).targets.distance_km;
@@ -233,7 +276,9 @@ export function planDay(ctx, opts = {}) {
     let scale = 1;
     if (!opts.provisional && level === 'medium') { scale = 0.85; const s = rd.signals.find((x) => x.id !== 'R-LOAD') || rd.signals[0]; if (s) why.push({ rule: s.id, text: s.text + ': langer Lauf um etwa 15 % kürzer, ohne Endteil' }); }
     if (!opts.provisional && level === 'low') { scale = 0.7; for (const s of rd.signals.slice(0, 2)) why.push({ rule: s.id, text: s.text }); why.push({ rule: 'R-EASY', text: 'Mehrere Erholungssignale: langer Lauf um 30 % kürzer' }); }
+    if (rec) { scale = Math.min(scale, rec.factor); }
     let longKm = pl.km, finish = pl.finish;
+    if (rec) finish = null;
     if (raceDay && raceDay.daysLeft > 0) {
       const recent = acts.filter((a) => a.sport === 'running' && diffDays(date, a.local_date) > 0 && diffDays(date, a.local_date) <= 35).map((a) => a.distance_m / 1000);
       const longest = Math.max(0, ...recent);
@@ -269,9 +314,10 @@ export function planDay(ctx, opts = {}) {
       if (pain) why.push({ rule: 'R-PAIN', text: `Schmerz im Bereich „${pain.area}“ gemeldet: belastende Übungen weglassen oder ersetzen` });
     }
     if (block.deload) levelS = levelS === 'full' ? 'reduced' : levelS;
+    if (rec) { levelS = rec.easy ? 'light' : levelS === 'full' ? 'reduced' : levelS; why.push({ rule: 'R-RETURN', text: `Kraft im Wiedereinstieg: weniger Sätze und etwa ${Math.round((1 - rec.weightScale) * 100)} % weniger Gewicht als beim letzten Mal` }); }
     if (raceDay && raceDay.phase === 'rennwoche') { levelS = 'light'; why.push({ rule: 'R-RACE', text: 'Rennwoche: Kraft nur leicht, damit die Beine frisch sind' }); }
     const s = strengthSession(slot.kind, { block, level: levelS, lastLogs: lastLogsByExercise(ctx.strengthLog), legLight, maxMin: settings.strength_max_min });
-    return { ...base, ...s, why, adjusted: levelS !== 'full' || legLight };
+    return { ...base, ...s, why, adjusted: levelS !== 'full' || legLight, ...(rec ? { weight_scale: rec.weightScale } : {}) };
   }
   return { ...base, title: slot.label, summary: '', steps: [], why, targets: {} };
 }

@@ -16,6 +16,19 @@ Persönliche Trainings-App für Laufen, Rad und Kraft. Daten kommen aus der Garm
 - Beim ersten Sync nach dem Update werden ältere Läufe einmalig neu ausgewertet (`best.v = 2`: Bestleistungen, harte Abschnitte, Entkopplung). Bis dahin nutzt die App Kilometerwerte und Pulszonen.
 - Zonen aus Schwellenpuls 181: Z1 <154, Z2 154–162, Z3 163–171, Z4 172–180, Z5 ≥181.
 
+## Krankheit und Wiedereinstieg
+
+Im Profil unter „Gesundheit“ meldest du dich krank (leicht, mittel, schwer, auch rückwirkend bis zu 14 Tage). Kranke Tage sind Pausentage: Sie zählen nicht als verpasst, der Wochenring, die Konsistenz-Serie und der Rückblick bleiben neutral, das Belastungsverhältnis wird in dieser Zeit nicht bewertet, die Kalorien gehen ohne Defizit auf Erhaltung. Ein täglicher Check-in (besser, gleich, schlechter) hält den Verlauf fest. Mit „Ich bin wieder fit“ beginnt am Folgetag der Wiedereinstieg (`server/engine/illness.js`):
+
+| Pause | leicht | mittel | schwer |
+|---|---|---|---|
+| 1–3 Tage | 1 lockerer Tag, 2 Tage ohne Qualität | 2 lockere Tage | 3 lockere Tage, Umfang 85 % |
+| 4–7 Tage | 3 lockere Tage, Umfang 70 % | 4 lockere Tage, 60 % | 5 lockere Tage, 50 %, Arzt klären |
+| 8–14 Tage | 4 lockere Tage, 60 % | 5 lockere Tage, 50 % | 6 lockere Tage, 50 %, Arzt klären |
+| über 14 Tage | wie ein neuer Block: 7 lockere Tage, 50 %, Aufbau über 3 Wochen | | |
+
+Der Umfang steigt von der Startstufe linear auf 100 %. Kraft: weniger Sätze und 8–15 % weniger Gewicht. Krankheitswochen gehen nicht in die Wochenumfangs-Planung ein (die Wochen davor bleiben Referenz). Ein „schlechter“-Check-in, „nicht fit“ oder deutlich erhöhter Ruhepuls machen im Wiedereinstieg aus dem Tag eine Pause (Rückfall-Schutz). Im Rennmodus verlängert sich die aktuelle Aufbauphase um die verlorenen Wochen, Tapering und Rennwoche bleiben am Renntermin, bei knapper Restzeit erscheint ein ehrlicher Hinweis. Die Richtwerte stammen aus der Praxis (Nackenregel, 24 bis 48 Stunden fieberfrei) und sind keine harte Wissenschaft; bei Fieber, Brustschmerz oder Atemnot gehört das zum Arzt.
+
 ## Einrichtung
 1. **Supabase**: neues Projekt, `supabase/schema.sql` im SQL-Editor ausführen. Tabellen tragen das Präfix `fit_`, RLS ist aktiv, Zugriff nur mit Service-Key.
 2. **Vercel**: Repo importieren (Branch `garmin-rewrite`), Umgebungsvariablen aus `.env.example` setzen. Der Cron `/api/cron/sync` läuft täglich (Hobby-Limit).

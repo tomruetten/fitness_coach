@@ -15,7 +15,8 @@ import { estimateThreshold } from './engine/threshold.js';
 import { fitnessState } from './engine/fitness.js';
 import { trends, trendsWindow } from './engine/trends.js';
 import { sessionFor, strengthAnalysis, exerciseInfo, exerciseCatalog, loggedDay } from './engine/strength.js';
-import { addDays, weekDates, weekday } from './engine/dates.js';
+import { addDays, diffDays, weekDates, weekday } from './engine/dates.js';
+import { illnessState, illnessView, SEVERITIES } from './engine/illness.js';
 import { GarminClient } from './garmin/client.js';
 import { runSync } from './garmin/sync.js';
 import { timingSafeEqual } from 'crypto';
@@ -238,13 +239,16 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const wlog = (await store.getSetting('weight_log')) || [];
     const gk = (await store.getSetting('garmin_kcal')) || {};
     const tomorrowKind = slotOf(rd.settings, addDays(ctx.date, 1)).kind;
-    const energy = { ...dayEnergy({ settings: rd.settings, date: ctx.date, plan, session, activities: ctx.activities, days: ctx.days, allActivities: ctx.activities, strengthSets: strength_done?.sets || 0, nextPlan: { kind: tomorrowKind }, trend: weightTrend(wlog, ctx.date) }), body: bodyOf(rd.settings), garmin: gk[ctx.date] || null, trend: weightTrend(wlog, ctx.date), advice: trendAdvice(weightTrend(wlog, ctx.date)), last_weight: wlog.length ? wlog[wlog.length - 1] : null };
+    const energy = { ...dayEnergy({ settings: rd.settings, date: ctx.date, plan, session, activities: ctx.activities, days: ctx.days, allActivities: ctx.activities, strengthSets: strength_done?.sets || 0, nextPlan: { kind: tomorrowKind }, trend: weightTrend(wlog, ctx.date), illness: illnessState(ctx.settings, ctx.date, ctx.today) }), body: bodyOf(rd.settings), garmin: gk[ctx.date] || null, trend: weightTrend(wlog, ctx.date), advice: trendAdvice(weightTrend(wlog, ctx.date)), last_weight: wlog.length ? wlog[wlog.length - 1] : null };
     const history = vdotHistory(ctx, rd.settings);
-    const tstatus = trainingStatus({ acwr: rd.acwr, history });
+    const ist = illnessState(ctx.settings, ctx.date, ctx.today);
+    const tstatus = ist.sick ? { key: 'sick', label: 'Krank', color: '#8E8E93', text: 'Leistungsstand und Belastung werden während der Krankheit nicht bewertet. Gute Besserung.' }
+      : ist.recovery ? { key: 'return', label: 'Wiedereinstieg', color: '#0A84FF', text: `Tag ${ist.recovery.since} von ${ist.recovery.ramp}: Die Belastung steigt in Stufen, Leistungsstand und Belastungsverhältnis werden in dieser Zeit nicht bewertet.` }
+        : trainingStatus({ acwr: rd.acwr, history });
     const auto = !ctx.settings._status?.[ctx.date] && matchingActivities(plan, ctx.activities, ctx.date).length > 0;
     const evaluation = evaluateSession({ plan, activities: ctx.activities, rd, date: ctx.date }) || (done.length ? evaluateSession({ plan: null, activities: ctx.activities, rd, date: ctx.date, act: done.reduce((b, x) => ((x.duration_s || 0) > (b.duration_s || 0) ? x : b)) }) : null);
     const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
-    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: ctx.settings._status?.[ctx.date] || (auto || (strength_done && String(plan.kind).startsWith('strength')) ? 'done' : null), auto, strength_done, energy, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
+    res.json({ date: ctx.date, garmin: { connected: !!gOauth?.oauthToken, sent: (gSent || {})[ctx.date] || null, can: !!planToWorkout(plan) }, status: plan.sick ? 'sick' : ctx.settings._status?.[ctx.date] || (auto || (strength_done && String(plan.kind).startsWith('strength')) ? 'done' : null), auto, strength_done, energy, evaluation, unfit: !!ctx.settings._unfit?.[ctx.date], illness: illnessView(ctx.settings, ctx.today), training_status: tstatus, session, plan, readiness: rdOut, done, fitness: { ...fitnessOut(pc.fit), history }, cycle: { week: pc.wp.c, deload: pc.wp.deload, target_km: pc.wp.target, last_km: Math.round(pc.wp.last * 10) / 10, avg4_km: Math.round(pc.wp.avg4 * 10) / 10, reason: pc.wp.reason }, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null, lastSync: last, thresholds: { lthr: ctx.settings.lthr, max_hr: ctx.settings.max_hr, lt_pace_s: ctx.settings.lt_pace_s, easy_pace_s: ctx.settings.easy_pace_s } });
   }));
 
   app.get('/api/week', wrap(async (req, res) => {
@@ -256,7 +260,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const runKm = (list) => list.filter((a) => a.sport === 'running').reduce((s, a) => s + (a.distance_m || 0), 0) / 1000;
     const target = week.reduce((s, p) => s + (p.targets?.distance_km && !String(p.kind).startsWith('strength') ? Number(p.targets.distance_km) : 0), 0);
     const [gOauth, gSent] = await Promise.all([store.getSetting('garmin_oauth'), store.getSetting('garmin_sent')]);
-    res.json({ today: ctx.today, garmin_connected: !!gOauth?.oauthToken, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, garmin_sent: (gSent || {})[p.date] || null, garmin_can: !!planToWorkout(p), status: ctx.settings._status?.[p.date] || (auto || (String(p.kind).startsWith('strength') && ctx.sets.some((s) => s.date === p.date && s.done !== false)) ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
+    res.json({ today: ctx.today, garmin_connected: !!gOauth?.oauthToken, lthr: ctx.settings.lthr, consistency: consistency({ activities: ctx.activities, settings: ctx.settings, today: ctx.today }), target_km: Math.round(target * 10) / 10, done_km: Math.round(week.reduce((s, p) => s + runKm(p.done), 0) * 10) / 10, week: week.map((p) => { const auto = !ctx.settings._status?.[p.date] && matchingActivities(p, ctx.activities, p.date).length > 0; return { ...p, garmin_sent: (gSent || {})[p.date] || null, garmin_can: !!planToWorkout(p), status: p.sick ? 'sick' : ctx.settings._status?.[p.date] || (auto || (String(p.kind).startsWith('strength') && ctx.sets.some((s) => s.date === p.date && s.done !== false)) ? 'done' : null), auto, evaluation: p.date <= ctx.today ? evaluateSession({ plan: p, activities: ctx.activities, date: p.date }) : null }; }) });
   }));
 
   // Rückblick auf die letzte volle Woche (am Montag/Dienstag wird er oben in der Woche gezeigt).
@@ -277,6 +281,50 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
       const hours = await forecast(settings.location || defaultLocation, settings.timezone);
       res.json({ weather: adviceFor(hours, date) });
     } catch { res.json({ weather: null }); }
+  }));
+
+
+  // Krank-Modus: melden, Schweregrad ändern, Tages-Check-in, beenden (Wiedereinstieg beginnt am Folgetag).
+  app.get('/api/illness', wrap(async (req, res) => {
+    const ctx = await loadContext(store);
+    res.json(illnessView(ctx.settings, ctx.today));
+  }));
+  app.post('/api/illness', wrap(async (req, res) => {
+    const settings = await loadSettings(store);
+    const today = todayIn(settings.timezone);
+    const cur = (await store.getSetting('illness')) || { episodes: [], log: {} };
+    const eps = cur.episodes || [], log = cur.log || {};
+    const open = eps.find((e) => !e.end);
+    const { action } = req.body || {};
+    const sev = SEVERITIES.includes(req.body?.severity) ? req.body.severity : null;
+    if (action === 'start') {
+      const start = isDate(req.body?.start) ? req.body.start : today;
+      if (start > today || start < addDays(today, -14)) return res.status(400).json({ error: 'Startdatum nicht möglich' });
+      if (open) { if (sev) open.severity = sev; if (start < open.start) open.start = start; }
+      else {
+        const prev = eps[eps.length - 1];
+        // Rückfall kurz nach dem Ende: dieselbe Krankheit, es zählt die gesamte Pause
+        if (prev && prev.end && diffDays(start, prev.end) <= 3) { prev.end = null; if (sev && SEVERITIES.indexOf(sev) > SEVERITIES.indexOf(prev.severity)) prev.severity = sev; }
+        else eps.push({ start, end: null, severity: sev || 'mittel' });
+      }
+    } else if (action === 'severity') {
+      if (!open || !sev) return res.status(400).json({ error: 'Keine offene Krankheit' });
+      open.severity = sev;
+    } else if (action === 'end') {
+      if (!open) return res.status(400).json({ error: 'Keine offene Krankheit' });
+      open.end = today > open.start ? addDays(today, -1) : open.start; // letzter kranker Tag: gestern
+    } else if (action === 'cancel') {
+      if (!open) return res.status(400).json({ error: 'Keine offene Krankheit' });
+      eps.splice(eps.indexOf(open), 1);
+      for (const k of Object.keys(log)) if (k >= open.start) delete log[k];
+    } else if (action === 'log') {
+      if (!['besser', 'gleich', 'schlechter'].includes(req.body?.value)) return res.status(400).json({ error: 'Wert unbekannt' });
+      log[today] = req.body.value;
+    } else return res.status(400).json({ error: 'Aktion unbekannt' });
+    for (const k of Object.keys(log)) if (k < addDays(today, -150)) delete log[k];
+    const next = { episodes: eps.slice(-12), log };
+    await store.setSetting('illness', next);
+    res.json({ ok: true, illness: illnessView({ _illness: next }, today) });
   }));
 
   // „Heute nicht fit“: stuft die heutige Einheit herunter. Nur für den heutigen Tag.
@@ -501,7 +549,7 @@ export function createApp({ store = getStore(), garmin = null, serveStatic = fal
     const ri = raceInfo(withDefaults(ctx.settings), ctx.date, pc0.fit);
     const goal_status = ri ? { phase: ri.phase, label: ri.label, daysLeft: ri.daysLeft, weeksLeft: ri.weeksLeft, usedPace: ri.usedPace, capped: ri.capped, requiredVdot: ri.requiredVdot, currentVdot: ri.currentVdot } : null;
     const saved_workouts = ((await store.getSetting('saved_workouts')) || []).length;
-    res.json({ ...out, nutrition: s.nutrition === 'halten' ? 'halten' : 'recomp', body: bodyOf(s), weight_trend: weightTrend((await store.getSetting('weight_log')) || [], ctx.date), goal_status, saved_workouts, thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
+    res.json({ ...out, nutrition: s.nutrition === 'halten' ? 'halten' : 'recomp', body: bodyOf(s), weight_trend: weightTrend((await store.getSetting('weight_log')) || [], ctx.date), goal_status, saved_workouts, illness: illnessView(ctx.settings, ctx.today), thresholdSuggestion: est.suggestion.lthr ? { lthr: est.suggestion.lthr, basedOn: est.basedOn } : null });
   }));
   app.post('/api/settings', wrap(async (req, res) => {
     const saved = (await store.getSetting('settings')) || {};

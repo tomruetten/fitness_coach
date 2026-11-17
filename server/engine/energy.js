@@ -75,7 +75,7 @@ export function macros(kcal, kg, proteinPerKg = 1.8) {
  * Tagesbedarf. activities: Aktivitäten des Tages; plan: Plan des Tages; loggedKg: Tagesvolumen aus dem Kraftlog.
  * Hat der Tag Aktivitäten, zählen sie (Quelle „ist“), sonst die Planung („plan“).
  */
-export function dayEnergy({ settings, date, plan, session = null, activities = [], days = [], allActivities = [], strengthSets = 0, nextPlan = null, trend = null }) {
+export function dayEnergy({ settings, date, plan, session = null, activities = [], days = [], allActivities = [], strengthSets = 0, nextPlan = null, trend = null, illness = null }) {
   const body = bodyOf(settings);
   const rmr = rmrTenHaaf(body);
   const mifflin = rmrMifflin(body);
@@ -110,6 +110,7 @@ export function dayEnergy({ settings, date, plan, session = null, activities = [
   if (goal === 'recomp') {
     if (String(plan?.kind) === 'run_long') { deficit = 0; deficitNote = 'Langer Lauf: heute ohne Defizit, damit die Einheit und die Erholung stimmen.'; }
     else if (String(nextPlan?.kind) === 'run_long') { deficit = 0; deficitNote = 'Morgen langer Lauf: heute ohne Defizit, die Speicher sollen voll sein.'; }
+    else if (illness?.sick || illness?.recovery) { deficit = 0; deficitNote = illness.sick ? 'Krank: heute ohne Defizit. Trinke viel und iss normal, der Körper braucht jetzt Energie zum Gesundwerden.' : 'Wiedereinstieg nach Krankheit: ohne Defizit, bis du wieder normal trainierst.'; }
     else if (trend != null && trend < -0.5) { deficit = 0; deficitNote = 'Gewicht fällt schneller als 0,5 kg pro Woche: kein Defizit, sonst leidet der Muskelaufbau.'; }
   }
   const total = need - deficit;

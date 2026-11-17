@@ -3,6 +3,7 @@ import { viewAnalysis } from './analysis.js';
 import { heuteKraftCard, viewPrep, viewLog } from './strength.js';
 import { ringHtml, spark } from './charts.js';
 import { play, rings } from './motion.js';
+import { openIllness, bindIllness, sickCard, returnCard, illnessSummary, clearCaches } from './illness.js';
 
 const app = $('#app');
 let tab = 'today';
@@ -64,6 +65,8 @@ const DOT = { good: '#34C759', medium: '#FF9500', low: '#FF3B30' };
 /** Ein Satz, was heute zu tun ist. */
 function advice(d) {
   const p = d.plan, rd = d.readiness;
+  if (p.sick) return 'Du bist krank. Ruhe dich aus, der Plan wartet auf dich.';
+  if (p.relapse) return 'Dein Körper ist noch nicht so weit. Heute Pause.';
   if (p.kind === 'rest') return rd.level === 'good' ? 'Ruhetag. Du bist erholt, nutze die Pause zum Auftanken.' : 'Ruhetag. Dein Körper kann ihn gut gebrauchen.';
   if (rd.level === 'low') return p.adjusted ? 'Dein Körper braucht Erholung. Die Einheit ist entschärft.' : 'Dein Körper braucht Erholung. Geh es heute locker an.';
   if (rd.level === 'medium') return p.adjusted ? 'Leicht müde. Die Einheit wurde angepasst.' : 'Leicht müde. Hör beim Training auf deinen Körper.';
@@ -277,8 +280,10 @@ function drawToday(d, stale) {
   const p = d.plan, g = group(p.kind);
   const head = `<div class="head"><div class="eyebrow">${new Date(d.date + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${stale ? ' · offline' : ''}</div><h1>Heute</h1></div>`;
   let html = head + pills(d) + cockpit(d);
-  html += g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, garmin: d.garmin, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
-  if (g === 'run') html += `<div id="wx"></div>` + fitCard(d);
+  const sickDay = !!(p.sick || p.relapse);
+  if (!sickDay) html += returnCard(d);
+  html += sickDay ? sickCard(d) : g === 'strength' && d.session ? heuteKraftCard(d) : g === 'run' ? runCard({ ...d, garmin: d.garmin, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null }) : otherCard({ ...d, stat: p.kind !== 'rest' ? { date: d.date, status: d.status } : null });
+  if (g === 'run' && !sickDay) html += `<div id="wx"></div>` + fitCard(d);
   html += infoCard(d, true) + energyCard(d);
   const main = d.evaluation ? d.done.find((x) => x.id === d.evaluation.activity_id) : null;
   if (main) html += statsCard(main) + evalCard(d.evaluation) + (main.sport === 'running' ? '<button type="button" class="link solo" id="siBtn">Soll und Ist mit Kilometerzeiten ansehen</button>' : '');
@@ -293,7 +298,8 @@ function drawToday(d, stale) {
   $('#unfitBtn')?.addEventListener('click', async () => {
     try { await api('/day/unfit', { on: !d.unfit }); ['c_today', 'c_week'].forEach((k) => store.del(k)); toast(d.unfit ? 'Zurückgenommen' : 'Einheit wird angepasst'); render(); } catch (e) { toast(e.message); }
   });
-  if (g === 'run') loadWeather(d.date);
+  if (g === 'run' && !sickDay) loadWeather(d.date);
+  bindIllness(app, () => render());
   bindStatus(app, d.date, () => render());
   bindGarmin(app, () => render());
 }
@@ -452,9 +458,9 @@ function consCard(c, today) {
   const cells = c.rows.flatMap((r) => r.cells).map((x) => {
     const col = x.s.map((k) => SPC[k]);
     const bg = col.length === 0 ? '' : col.length === 1 ? col[0] : `linear-gradient(135deg,${col[0]} 50%,${col[1]} 50%)`;
-    return `<i class="cc${x.future ? ' fut' : ''}${x.skip && !x.s.length ? ' skip' : ''}${x.date === today ? ' now' : ''}"${bg ? ` style="background:${bg}"` : ''} title="${x.date.slice(8, 10)}.${x.date.slice(5, 7)}."></i>`;
+    return `<i class="cc${x.future ? ' fut' : ''}${x.skip && !x.s.length ? ' skip' : ''}${x.sick && !x.s.length ? ' sick' : ''}${x.date === today ? ' now' : ''}"${bg ? ` style="background:${bg}"` : ''} title="${x.date.slice(8, 10)}.${x.date.slice(5, 7)}."></i>`;
   }).join('');
-  return `<h2>Konsistenz</h2><div class="card cons"><div class="cons-top"><div><b>${c.streak}</b><small>${c.streak === 1 ? 'Woche' : 'Wochen'} in Folge mit 3+ aktiven Tagen</small></div><div class="r"><b>${c.active_days}</b><small>aktive Tage in ${c.weeks} Wochen</small></div></div><div class="cgrid" style="grid-template-columns:repeat(${c.rows.length},1fr)">${cells}</div><div class="plg"><span><i style="background:${SPC.run}"></i>Laufen</span><span><i style="background:${SPC.strength}"></i>Kraft</span><span><i style="background:${SPC.spin}"></i>Spinning / Rad</span>${c.rows.some((r) => r.cells.some((x) => x.s.includes('other'))) ? `<span><i style="background:${SPC.other}"></i>Sonstiges</span>` : ''}</div></div>`;
+  return `<h2>Konsistenz</h2><div class="card cons"><div class="cons-top"><div><b>${c.streak}</b><small>${c.streak === 1 ? 'Woche' : 'Wochen'} in Folge mit 3+ aktiven Tagen</small></div><div class="r"><b>${c.active_days}</b><small>aktive Tage in ${c.weeks} Wochen</small></div></div><div class="cgrid" style="grid-template-columns:repeat(${c.rows.length},1fr)">${cells}</div><div class="plg"><span><i style="background:${SPC.run}"></i>Laufen</span><span><i style="background:${SPC.strength}"></i>Kraft</span><span><i style="background:${SPC.spin}"></i>Spinning / Rad</span>${c.rows.some((r) => r.cells.some((x) => x.sick)) ? '<span><i class="sk"></i>Krank</span>' : ''}${c.rows.some((r) => r.cells.some((x) => x.s.includes('other'))) ? `<span><i style="background:${SPC.other}"></i>Sonstiges</span>` : ''}</div></div>`;
 }
 async function loadReview(todayIso) {
   const open = [1, 2].includes(new Date(todayIso + 'T12:00').getDay()); // Montag und Dienstag
@@ -475,7 +481,7 @@ function drawWeek(d, stale) {
   const tgt = d.target_km || 0, dn = d.done_km || 0, pct = tgt ? Math.min(1, dn / tgt) : 0;
   const dots = [['Laufen', c.run, KIND_COLOR.running], ['Kraft', c.strength, KIND_COLOR.strength], ['Spinning', c.spin, KIND_COLOR.spinning]].filter(([, v]) => v[1]).map(([l, v, col]) => `<span><i style="background:${col}"></i>${l} ${v[0]}/${v[1]}</span>`).join('');
   const wk = `<div class="card wkcard">${ringHtml({ p: pct, color: KIND_COLOR.running, size: 92, sw: 9, center: `<b class="${pct >= 0.995 ? 'r3' : ''}"><em data-count="${Math.round(pct * 100)}" data-dec="0">${Math.round(pct * 100)}</em><i>%</i></b>` })}<div class="wk-text"><div class="wk-km"><b><em data-count="${dn}" data-dec="1">${dec(dn, 1)}</em></b><span> von ${dec(tgt, tgt % 1 ? 1 : 0)} km</span></div><div class="wk-sub">Laufumfang diese Woche</div><div class="wk-dots">${dots}</div></div></div>`;
-  const locked = (p, i) => p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
+  const locked = (p, i) => p.sick || p.fixed || dates[i] < d.today || d.week[i].done?.length > 0 || d.week[i].fixed;
   const anyMoved = d.week.some((p) => p.moved);
   app.innerHTML = `<div class="head row-head"><div><div class="eyebrow">${dm(dates[0])} – ${dm(dates[6])}${b0 ? ' · ' + esc(b0.label) + ', Woche ' + b0.week : ''}${stale ? ' · offline' : ''}</div><h1>Woche</h1></div><button type="button" class="textbtn" id="wedit">${weekEdit ? 'Fertig' : 'Bearbeiten'}</button></div>
     ${weekEdit ? '<p class="foot edit-hint">Ziehe eine Einheit am Griff auf einen anderen Tag oder tippe zwei Tage nacheinander an, um sie zu tauschen. Spinning und vergangene Tage bleiben fest.</p>' : wk}
@@ -485,14 +491,14 @@ function drawWeek(d, stale) {
     const col = { run: '#FF6B2C', strength: '#AF52DE', spin: '#0A84FF' }[g];
     const moved = weekEdit ? p.date !== dates[i] || p.moved : p.moved;
     const extraTxt = rest && (d.week[i].done || []).length ? 'Zusätzlich: ' + (d.week[i].done || []).map((x) => (SPORT[x.sport] || x.sport) + (x.distance_m > 1500 ? ' ' + dec(x.distance_m / 1000, 1) + ' km' : '')).join(', ') : '';
-    const meta = [rest ? extraTxt : (p.title || '').replace(/^Kraft [AB]: /, ''), moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
+    const meta = [rest ? (extraTxt || (p.sick ? 'nicht gewertet' : p.relapse ? 'Rückfall-Schutz' : '')) : (p.title || '').replace(/^Kraft [AB]: /, ''), moved ? 'verschoben' : d.week[i].status === 'skipped' ? 'ausgefallen' : p.provisional && !rest ? 'vorläufig' : ''].filter(Boolean).join(' · ');
     const act = d.week[i].done || [];
     const unit = g === 'run' ? 'km' : 'min';
     const planV = g === 'run' ? t.distance_km : t.duration_min;
     const actV = g === 'run' ? act.filter((x) => x.sport === 'running').reduce((s, x) => s + (x.distance_m || 0), 0) / 1000 : act.reduce((s, x) => s + (x.duration_s || 0), 0) / 60;
     const fmtV = (v) => (g === 'run' ? dec(v, 1) : String(Math.round(v)));
     const pv = rest || weekEdit || (!planV && !(actV > 0)) ? '' : actV > 0.05 ? `<div class="pv"><b style="color:${col}">${fmtV(actV)}</b><small>${planV ? `/ ${fmtV(planV)} ` : ''}${unit}</small></div>` : `<div class="pv plan${d.week[i].status === 'skipped' ? ' skip' : ''}"><b>${fmtV(planV)}</b><small>${unit}</small></div>`;
-    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${rest && extraTxt && !weekEdit ? ` data-actid="${d.week[i].done[0].id}"` : ''}${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? 'Ruhetag' : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
+    return `<div class="day${today ? ' today' : ''}${rest ? ' rest' : ''}${weekEdit && lock ? ' lock' : ''}${weekEdit && weekEdit.sel === i ? ' sel' : ''}" data-i="${i}"${rest && extraTxt && !weekEdit ? ` data-actid="${d.week[i].done[0].id}"` : ''}${!rest && !weekEdit ? ` data-open="${dates[i]}" data-kind="${g === 'strength' ? p.kind : ''}"` : ''}><div class="dd"><span>${esc(d.week[i].weekday.slice(0, 2))}</span><b>${Number(dates[i].slice(8, 10))}</b></div>${rest ? '' : `<i class="dbar" style="background:${col}"></i>`}<div class="dt"><b>${esc(rest ? (p.sick ? 'Krank' : p.relapse ? 'Pause' : 'Ruhetag') : nice(p.label).replace(/ \(.*/, ''))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>${pv}${weekEdit ? (lock ? '' : `<span class="grip" data-grip="${i}" aria-label="Verschieben">${GRIP}</span>`) : (!rest && dates[i] <= d.today) ? `<button type="button" class="ring" data-ring="${i}" aria-label="${isDone(d.week[i]) ? 'Als offen markieren' : 'Als erledigt markieren'}">${isDone(d.week[i]) ? check : d.week[i].status === 'skipped' ? RING.skipped : RING.open}</button>` : today ? '<span class="tbadge">Heute</span>' : ''}</div>`;
   }).join('')}</div>
     ${!weekEdit && d.consistency ? consCard(d.consistency, d.today) : ''}
     ${weekEdit ? '' : `<div class="group"><button type="button" class="srow btn" id="actsBtn"><i class="si2 orange"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></i><span class="sl">Vergangene Aktivitäten</span><span class="muted">30 Tage</span>${CHEV_R}</button></div>`}
@@ -620,6 +626,7 @@ async function viewMore(isCurrent = () => true) {
       flame: ic('red', '<path d="M12 3s5 4 5 9a5 5 0 01-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3 0-5 1-8z"/>'),
       flag: ic('orange', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
       plus: ic('blue', '<path d="M12 5v14M5 12h14"/>'),
+      heal: ic('red', '<rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M12 8v8M8 12h8"/>'),
     };
     const gt = g.time_s ? `${Math.floor(g.time_s / 3600)}:${String(Math.floor((g.time_s % 3600) / 60)).padStart(2, '0')}:${String(g.time_s % 60).padStart(2, '0')}` : '';
     const days = g.date ? Math.ceil((new Date(g.date + 'T12:00') - new Date()) / 86400000) : null;
@@ -639,6 +646,7 @@ async function viewMore(isCurrent = () => true) {
       ${row(IC.cal, 'Alter', 'age', bd.age, 'Jahre', 'inputmode="numeric"')}
       <button type="button" class="srow btn" id="nutRow">${IC.flame}<span class="sl">Ernährungsziel</span><span class="muted">${s.nutrition === 'halten' ? 'Gewicht halten' : 'Fett abbauen'}</span>${CHEV_R}</button>
     </div><p class="gfoot">Daraus berechnet Coach deinen täglichen Energiebedarf.${s.weight_trend != null ? ` Gewichtstrend: ${s.weight_trend > 0 ? '+' : ''}${String(s.weight_trend).replace('.', ',')} kg pro Woche.` : ''}</p>
+    <h2>Gesundheit</h2><div class="group"><button type="button" class="srow btn" id="illRow">${IC.heal}<span class="sl">Krank oder erholt</span><span class="muted">${esc(illnessSummary(s.illness))}</span>${CHEV_R}</button></div><p class="gfoot">Bei Krankheit pausiert Coach die Einheiten ohne schlechtes Gewissen und plant danach den Wiedereinstieg in Stufen.</p>
     <h2>Training</h2><div class="group"><button type="button" class="srow btn" id="kraftRow">${IC.dumb}<span class="sl">Krafttraining</span><span class="muted">${s.saved_workouts ? `${s.saved_workouts} gespeichert` : 'Workouts'}</span>${CHEV_R}</button><button type="button" class="srow btn" id="goalRow">${IC.flag}<span class="sl">Wettkampfziel</span><span class="muted">${g.date ? `${gt} · ${g.date.split('-').reverse().join('.')}` : 'Nicht festgelegt'}</span>${CHEV_R}</button></div><p class="gfoot">Optional. Mit Zielzeit und Datum plant Coach auf ein Rennen hin, sonst trainierst du einfach kontinuierlich besser.</p>
     <h2>Mitteilungen</h2><div class="group" id="pushCard"><div class="muted pad" id="pushInfo">Lädt …</div></div>
     <h2>Garmin</h2><div class="group">
@@ -686,6 +694,7 @@ async function viewMore(isCurrent = () => true) {
         try { await api('/settings', { nutrition: b.dataset.nut }); ['c_more', 'c_today'].forEach((k) => store.del(k)); close(); render(); } catch (e) { toast(e.message); }
       }));
     });
+    $('#illRow').addEventListener('click', () => openIllness(() => { clearCaches(); render(); }));
     $('#kraftRow').addEventListener('click', () => go('prep', { kind: 'strength_a' }));
     $('#goalRow').addEventListener('click', () => {
       const el = document.createElement('div');

@@ -3,6 +3,7 @@ import { acuteChronic } from './load.js';
 import { zoneBounds } from './zones.js';
 import { buckets } from './buckets.js';
 import { fitnessState } from './fitness.js';
+import { sickDaysIn } from './illness.js';
 
 const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -127,6 +128,10 @@ function marksOf({ list, activities, settings, date, km }) {
   const skipped = Object.entries(settings._status || {}).filter(([d, s]) => s === 'skipped' && d <= date);
   if (weekly && list.length === 7) for (const [d] of skipped) { const i = idxOf(d); if (i >= 0) marks.push({ i, kind: 'skip', label: 'Ausgefallen', date: d }); }
   else for (const [d] of skipped) { const i = idxOf(d); if (i >= 0 && !marks.some((m) => m.i === i && m.kind === 'skip')) marks.push({ i, kind: 'skip', label: 'Ausgefallene Einheit', date: d }); }
+  for (let i = 0; i < list.length; i++) {
+    const n = sickDaysIn(settings, list[i].from, list[i].to < date ? list[i].to : date, date);
+    if (n && list[i].from <= date) marks.push({ i, kind: 'sick', label: weekly ? `Krank (${n} ${n === 1 ? 'Tag' : 'Tage'})` : 'Krank', date: list[i].from });
+  }
   return marks;
 }
 

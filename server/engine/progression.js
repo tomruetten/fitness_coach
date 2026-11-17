@@ -21,10 +21,13 @@ const round5 = (x) => Math.round(x * 2) / 2;
 export const weekKm = (activities, monday) => sum(activities.filter((a) => isRun(a) && a.local_date >= monday && a.local_date <= addDays(monday, 6)).map((a) => a.distance_m / 1000));
 
 /** Umfang der laufenden Woche und Position im Vierwochen-Zyklus. */
-export function weeklyPlan(activities, date, { level = 'good', acwr = null, startKm = 20 } = {}) {
+export function weeklyPlan(activities, date, { level = 'good', acwr = null, startKm = 20, skip = null } = {}) {
   const m = mondayOf(date);
-  const wk = (i) => weekKm(activities, addDays(m, -7 * i));
-  const raw = [null, wk(1), wk(2), wk(3), wk(4), wk(5), wk(6), wk(7)];
+  // Krankheitswochen (`skip`) zählen nicht: die Planung stützt sich auf die Wochen davor, als gäbe es die Pause nicht
+  const vals = [];
+  for (let i = 1; vals.length < 7 && i <= 16; i++) { const mon = addDays(m, -7 * i); if (!skip?.has(mon)) vals.push(weekKm(activities, mon)); }
+  while (vals.length < 7) vals.push(0);
+  const raw = [null, ...vals];
   // Einzelne Ausreißerwochen (z. B. ein Wettkampf) verzerren Zyklus und Zielumfang nicht: auf 130 % des Medians begrenzt
   const med = median(raw.slice(1, 5).filter((v) => v > 0)) || 0;
   const w = raw.map((v) => (v == null || !med ? v : Math.min(v, med * 1.3)));

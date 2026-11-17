@@ -16,6 +16,8 @@ export const NOTIFICATIONS = [
     async build({ ctx }) {
       const rd = readiness(ctx);
       const plan = planDay(ctx, { rd });
+      if (plan.sick) return { title: 'Gute Besserung', body: 'Heute kein Training. Wie geht es dir? Trag es kurz im Profil ein.', url: '/' };
+      if (plan.relapse) return { title: 'Heute Pause', body: 'Rückfall-Schutz im Wiedereinstieg: heute lieber Pause.', url: '/' };
       if (plan.kind === 'rest') return { title: 'Heute', body: 'Heute ist Ruhetag. Gute Erholung!', url: '/' };
       const tail = rd.level === 'low' ? ' Dein Körper braucht Erholung, die Einheit ist entschärft.' : rd.level === 'medium' ? ' Leicht müde, achte auf den Puls.' : '';
       const dist = plan.targets?.distance_km && String(plan.kind).startsWith('run') ? ` · ${km(plan.targets.distance_km)} km` : '';

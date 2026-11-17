@@ -9,6 +9,7 @@
 //   0              Rennwoche    Umfang 50 %, nur Aktivierung, am Renntag die Wettkampfeinheit
 import { diffDays, mondayOf } from './dates.js';
 import { vdotOf, predictTime } from './fitness.js';
+import { lostWeeks } from './illness.js';
 
 export const RACE_M = 21097.5;
 export const RACE_KM = 21.0975;
@@ -25,7 +26,13 @@ export function raceInfo(settings, date, fit) {
   const daysLeft = diffDays(g.date, date);
   if (daysLeft < 0) return null;
   const weeksLeft = diffDays(mondayOf(g.date), mondayOf(date)) / 7;
-  const phase = weeksLeft === 0 ? 'rennwoche' : weeksLeft === 1 ? 'taper' : weeksLeft <= 5 ? 'spezifisch' : weeksLeft <= 11 ? 'aufbau' : 'basis';
+  // Krankheit: Die Aufbauphasen verschieben sich um die verlorenen Wochen (Tapering und Rennwoche bleiben am Renntermin)
+  const lost = lostWeeks(settings, date, settings?._today || date);
+  const shift = weeksLeft >= 2 ? Math.round(lost) : 0;
+  const eff = weeksLeft + shift;
+  const phase = weeksLeft === 0 ? 'rennwoche' : weeksLeft === 1 ? 'taper' : eff <= 5 ? 'spezifisch' : eff <= 11 ? 'aufbau' : 'basis';
+  const risk = lost >= 1 && weeksLeft <= 6 || lost >= 2 && weeksLeft <= 10 || lost >= 3;
+  const illness = lost > 0 ? { lost_weeks: lost, shifted: shift, risk, text: risk ? `Durch die Krankheit fehlen etwa ${String(lost).replace('.', ',')} Trainingswochen, bis zum Rennen sind es noch ${weeksLeft} Wochen. Die Zielzeit kann knapp werden. Coach plant vorsichtig weiter, du kannst das Ziel später im Profil anpassen.` : `Durch die Krankheit fehlen etwa ${String(lost).replace('.', ',')} Trainingswochen. ${shift ? `Die aktuelle Phase wird um ${shift} ${shift === 1 ? 'Woche' : 'Wochen'} verlängert.` : 'Der Plan bleibt im Rahmen.'}` } : null;
   const goalPace = Math.round(g.time_s / RACE_KM);
   const requiredVdot = Math.round(vdotOf(RACE_M, g.time_s) * 10) / 10;
   const vdot = fit?.vdot ?? null;
@@ -33,7 +40,7 @@ export function raceInfo(settings, date, fit) {
   const capPace = vdot == null ? goalPace : Math.round(predictTime(vdot + MAX_VDOT_STRETCH, RACE_M) / RACE_KM);
   const usedPace = Math.max(goalPace, capPace);
   return {
-    date: g.date, time_s: g.time_s, daysLeft, weeksLeft, phase, label: PHASE_LABEL[phase],
+    date: g.date, time_s: g.time_s, daysLeft, weeksLeft, phase, label: PHASE_LABEL[phase], illness,
     goalPace, usedPace, capped: usedPace > goalPace,
     requiredVdot, currentVdot: vdot, gap: vdot == null ? null : Math.round((requiredVdot - vdot) * 10) / 10,
   };
@@ -46,7 +53,7 @@ export function raceQuality(r, level) {
   if (r.phase === 'rennwoche') return { type: 'strides', easyMin: 25, reps: 4, repS: 20 };
   if (r.phase === 'taper') return { type: 'racepace', reps: 2, repMin: Math.round(8 * shrink), recMin: 2, pace_s: r.usedPace };
   if (r.phase === 'spezifisch' && r.weeksLeft % 2 === 1) {
-    const total = (20 + (5 - r.weeksLeft) * 4) * shrink; // 20 min in Woche 5, 28 min in Woche 3
+    const total = (20 + Math.max(0, 5 - r.weeksLeft) * 4) * shrink; // 20 min in Woche 5, 28 min in Woche 3
     const reps = total <= 24 ? 2 : 3;
     return { type: 'racepace', reps, repMin: Math.round(total / reps), recMin: 2, pace_s: r.usedPace };
   }

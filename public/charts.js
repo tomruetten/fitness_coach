@@ -24,7 +24,7 @@ export function spark(vals, color, bars = false) {
   return `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.map(([i, v]) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg><i class="spark-dot" style="left:${X(last[0]).toFixed(1)}%;top:${((Y(last[1]) / 30) * 100).toFixed(1)}%;background:${color}"></i>`;
 }
 
-const MARK = { deload: ['#30B0C7', '↓', 'Entlastung'], race: ['#FFB000', '★', 'Rennen/Test'], test: ['#FFB000', '★', 'Leistungstest'], skip: ['#8E8E93', '✕', 'Ausgefallen'] };
+const MARK = { deload: ['#30B0C7', '↓', 'Entlastung'], race: ['#FFB000', '★', 'Rennen/Test'], test: ['#FFB000', '★', 'Leistungstest'], skip: ['#8E8E93', '✕', 'Ausgefallen'], sick: ['#AF52DE', '+', 'Krank'] };
 const has = (v) => v != null && !Number.isNaN(v);
 
 /** Rundet einen Maximalwert auf eine schöne Achse mit höchstens 4 Teilen. */
