@@ -517,7 +517,7 @@ function drawWeek(d, stale) {
   }));
   $('#wedit').onclick = async () => {
     if (!weekEdit) { weekEdit = { order: [...d.week], sel: null }; return drawWeek(d, stale); }
-    const days = Object.fromEntries(dates.map((dt, i) => [dt, weekEdit.order[i].kind]));
+    const days = Object.fromEntries(dates.map((dt, i) => [dt, weekEdit.order[i].sick_slot || weekEdit.order[i].kind])); // kranke Tage tragen ihre Einheit als sick_slot
     const changed = weekEdit.order.some((p, i) => p.date !== dates[i]);
     weekEdit = null;
     if (changed) { try { await api('/week/plan', { days }); store.del('c_today'); toast('Woche gespeichert'); } catch (e) { toast(e.message); } }

@@ -147,3 +147,28 @@ test('API: krank melden, einchecken, beenden, Rückfall zusammenführen, zurück
   assert.equal((await t.call('/api/illness', { action: 'end' })).status, 400);
   t.close();
 });
+
+test('Woche umplanen funktioniert auch nach einer Krankheit in der Woche (Einheiten kranker Tage bleiben im Slot)', async () => {
+  const t = await boot();
+  const today = (await (await t.call('/api/today')).json()).date;
+  const monday = mondayOf(today);
+  const start = today > monday ? monday : today;
+  assert.equal((await t.call('/api/illness', { action: 'start', severity: 'leicht', start })).status, 200);
+  if (today > start) assert.equal((await t.call('/api/illness', { action: 'end' })).status, 200);
+  const wk = (await (await t.call('/api/week')).json()).week;
+  const days = Object.fromEntries(wk.map((p) => [p.date, p.sick_slot || p.kind]));
+  // zwei Tage ab heute mit verschiedenen Einheiten tauschen
+  const free = wk.filter((p) => p.date >= today && !p.sick);
+  const a = free.find((p, i) => free.some((q, j) => j > i && (q.sick_slot || q.kind) !== (p.sick_slot || p.kind)));
+  if (a) {
+    const b = free.find((q) => (q.sick_slot || q.kind) !== (a.sick_slot || a.kind) && q.date > a.date);
+    [days[a.date], days[b.date]] = [days[b.date], days[a.date]];
+    assert.equal((await t.call('/api/week/plan', { days })).status, 200);
+  }
+  // Der alte Fehler: kranke Tage als „rest“ zu schicken, passt nicht zur Standardwoche
+  if (wk.some((p) => p.sick && p.sick_slot !== 'rest')) {
+    const bad = Object.fromEntries(wk.map((p) => [p.date, p.kind]));
+    assert.equal((await t.call('/api/week/plan', { days: bad })).status, 400);
+  }
+  t.close();
+});
